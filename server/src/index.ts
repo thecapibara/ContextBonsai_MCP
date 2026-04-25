@@ -20,6 +20,26 @@ const DEFAULT_STATE = {
     known_issues: []
 };
 
+/**
+ * Atomic write with backup:
+ * 1. Writes to .tmp
+ * 2. Copies current to .bak
+ * 3. Renames .tmp to current
+ */
+async function safeWrite(filePath: string, content: string) {
+    const tempPath = filePath + ".tmp";
+    const bakPath = filePath + ".bak";
+    
+    await fs.writeFile(tempPath, content, "utf-8");
+    
+    try {
+        await fs.access(filePath);
+        await fs.copyFile(filePath, bakPath);
+    } catch {}
+    
+    await fs.rename(tempPath, filePath);
+}
+
 // 1. Читання контексту
 server.tool(
     "read_project_state",
@@ -96,7 +116,7 @@ server.tool(
             );
         }
 
-        await fs.writeFile(statePath, JSON.stringify(state, null, 2), "utf-8");
+        await safeWrite(statePath, JSON.stringify(state, null, 2));
         return {
             content: [{ type: "text", text: `Success: state.json meticulously updated.` }]
         };
@@ -147,7 +167,7 @@ server.tool(
             }
         }
 
-        await fs.writeFile(logPath, finalMarkdown, "utf-8");
+        await safeWrite(logPath, finalMarkdown);
         
         return {
             content: [{ type: "text", text: `Success: Semantic pruning complete. Log added to topic [${topic}]. Retained top ${MAX_PER_TOPIC} logs per semantic topic.` }]

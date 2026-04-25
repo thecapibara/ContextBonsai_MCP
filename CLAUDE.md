@@ -30,8 +30,14 @@ When a task is completed, a bug is fixed, or a refactoring is successful, the co
 1. Generate an `<entropy_reduction>` thought block internally.
 2. Formulate a dense, declarative summary containing ONLY: Root Cause, Final Solution, and Mutated Files.
 3. Use the `prune_context_branch` tool to append this summary to `bonsai_logs.md`.
-4. **Topic Discipline**: Use broad, reusable semantic topics (e.g., `Logic`, `UI`, `Database`, `Auth`). Avoid unique topics for every fix to prevent log fragmentation.
-5. Update the project state using `update_project_state`. Always use tools for state changes; never edit JSON manually.
+4. **Topic Discipline**: Use strictly the following recommended topics to prevent fragmentation:
+   - `Logic`: Algorithm fixes, core functionality, state logic.
+   - `UI`: Styling, layout, components, UX/UI.
+   - `Database`: Schema, queries, migrations, data persistence.
+   - `Auth`: Security, sessions, permissions, tokens.
+   - `Infra`: Build systems, MCP, deployment, environment.
+5. **Atomic Safety**: The server performs atomic writes. If a crash occurs, `state.json.bak` and `bonsai_logs.md.bak` serve as disaster recovery points.
+6. Update the project state using `update_project_state`. Always use tools for state changes; never edit JSON manually.
 </context_bonsai>
 
 <semantic_archiver>

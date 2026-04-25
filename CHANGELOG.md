@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.7] - 2026-04-25
+### Added
+- **Atomic Writes**: Implemented write-to-temp-and-rename pattern to prevent file corruption during crashes.
+- **Auto-Backups**: Server now automatically maintains `.bak` files for `state.json` and `bonsai_logs.md` on every write.
+- **Tag Discipline**: Standardized a set of recommended semantic topics (`Logic`, `UI`, `Database`, `Auth`, `Infra`).
+
 ## [1.0.6] - 2026-04-25
 ### Added
 - **Topic-Based Semantic Grouping**: Logs are now clustered by semantic domain (e.g., 'Auth', 'UI').
