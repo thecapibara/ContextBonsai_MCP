@@ -14,7 +14,7 @@ const execAsync = promisify(exec);
 // Запускаємо сервер
 const server = new McpServer({
     name: "context-bonsai-mcp",
-    version: "1.4.0"
+    version: "1.4.1"
 });
 
 const DEFAULT_STATE = {
@@ -341,7 +341,9 @@ server.tool(
             for (const r of ranges) {
                 const comment = code.substring(r.pos, r.end);
                 if (comment.startsWith("/**")) {
-                    docs += comment + "\n";
+                    const lines = comment.split('\n').map(l => l.trim().replace(/^\/\*\*?|\*\/$/g, '').trim());
+                    const summary = lines.find(l => l.length > 0 && !l.startsWith('@'));
+                    if (summary) docs += `/** ${summary} */\n`;
                 }
             }
             return docs;
@@ -365,10 +367,15 @@ server.tool(
                 let text = statement.getText(sourceFile);
                 let sig = text.split('{')[0].trim() + " {\n";
                 
-                for (const member of statement.members) {
-                    const isPrivate = ts.canHaveModifiers(member) && ts.getModifiers(member)?.some(m => m.kind === ts.SyntaxKind.PrivateKeyword);
-                    if (isPrivate) continue;
+                let publicMembers = statement.members.filter(m => {
+                    return !(ts.canHaveModifiers(m) && ts.getModifiers(m)?.some(mod => mod.kind === ts.SyntaxKind.PrivateKeyword));
+                });
+                
+                const MAX_MEMBERS = 15;
+                const truncated = publicMembers.length > MAX_MEMBERS;
+                const membersToProcess = publicMembers.slice(0, MAX_MEMBERS);
 
+                for (const member of membersToProcess) {
                     let mDoc = getJSDoc(member);
                     if (mDoc) {
                         sig += mDoc.split('\n').filter(l => l.trim()).map(l => "  " + l).join('\n') + "\n";
@@ -388,6 +395,11 @@ server.tool(
                         sig += "  " + mSig + ";\n";
                     }
                 }
+                
+                if (truncated) {
+                    sig += `  // ... and ${publicMembers.length - MAX_MEMBERS} more members omitted for token efficiency.\n`;
+                }
+
                 sig += "}";
                 signatures.push(doc + sig);
             } else if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) {

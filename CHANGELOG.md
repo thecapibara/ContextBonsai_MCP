@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.4.1] - 2026-04-25
+### Changed
+- **Token Guardrails**: Added strict bounds to the AST parser to prevent massive files from generating equally massive signature maps. JSDoc strings are now truncated to their first summary line (omitting `@params`, `@returns`), and classes with more than 15 public methods will cleanly truncate the remaining members with a single line `// ... and X more members omitted`.
+
 ## [1.4.0] - 2026-04-25
 ### Added
 - **AST JSDoc Preservation**: `preview_file_signatures` now dynamically extracts and prepends `/** ... */` JSDoc comments to function and class signatures, giving the LLM immediate context on parameter intent without reading the code block.
