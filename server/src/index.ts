@@ -5,11 +5,15 @@ import { z } from "zod";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as process from "node:process";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+
+const execAsync = promisify(exec);
 
 // Запускаємо сервер
 const server = new McpServer({
     name: "context-bonsai-mcp",
-    version: "1.1.0"
+    version: "1.2.0"
 });
 
 const DEFAULT_STATE = {
@@ -147,7 +151,17 @@ server.tool(
         const archivePath = path.join(process.cwd(), "bonsai_archive.md");
         const topic = args.topic || "General";
         const marker = args.is_critical ? "### 🌟 CRITICAL BRANCH" : "### 🌳 PRUNED BRANCH";
-        const entryBody = `**Date:** ${new Date().toISOString()}\n**Root Cause:** ${args.issue_root_cause}\n**Solution:** ${args.final_solution}\n**Mutated Files:**\n${args.mutated_files.map((f: string) => `- ${f}`).join("\n")}\n---\n`;
+        
+        let gitContext = "";
+        try {
+            const { stdout: hash } = await execAsync("git rev-parse --short HEAD", { cwd: process.cwd() });
+            const { stdout: branch } = await execAsync("git rev-parse --abbrev-ref HEAD", { cwd: process.cwd() });
+            gitContext = `**Git:** \`${branch.trim()}@${hash.trim()}\`\n`;
+        } catch (e) {
+            // Ignore non-git repos
+        }
+
+        const entryBody = `**Date:** ${new Date().toISOString()}\n${gitContext}**Root Cause:** ${args.issue_root_cause}\n**Solution:** ${args.final_solution}\n**Mutated Files:**\n${args.mutated_files.map((f: string) => `- ${f}`).join("\n")}\n---\n`;
 
         let existingLogs = "";
         try {
