@@ -1,5 +1,7 @@
 # 🌳 Context Bonsai (MCP Server)
 
+[![NPM Version](https://img.shields.io/npm/v/context-bonsai-mcp.svg)](https://www.npmjs.com/package/context-bonsai-mcp)
+
 Welcome to **Context Bonsai**, an advanced state-machine and context compression tool for Claude Code and Claude Desktop. 
 This tool reduces context window exhaustion and hallucinations by enforcing strict conversational "pruning" and isolated project state management.
 
@@ -15,7 +17,9 @@ To use this server, you must have **Node.js** and **npm** installed on your syst
 
 ## 🚀 2. Installation & Setup
 
-You **do not** need to clone this repository manually to use the tools. Because the server is published to the global NPM registry, you can inject it into your environment simply by updating your Claude client's global settings (e.g., `~/.claude_code/config.json` for Claude Code or `claude_desktop_config.json` for Claude Desktop).
+This server is officially published to the global NPM registry! You can view the package page here: [npmjs.com/package/context-bonsai-mcp](https://www.npmjs.com/package/context-bonsai-mcp).
+
+You **do not** need to clone this repository manually to use the tools. Because the server is published globally, you can inject it into your environment simply by updating your Claude client's global settings (e.g., `~/.claude_code/config.json` for Claude Code or `claude_desktop_config.json` for Claude Desktop).
 
 Add the following block:
 ```json
