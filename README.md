@@ -1,13 +1,23 @@
 # 🌳 Context Bonsai (MCP Server)
 
-Context Bonsai is an autonomous **Model Context Protocol (MCP)** server designed to enforce state-machine logic and relieve token exhaustion by actively "pruning" dead conversation branches in Claude Code and Claude Desktop.
+Welcome to **Context Bonsai**, an advanced state-machine and context compression tool for Claude Code and Claude Desktop. 
+This tool reduces context window exhaustion and hallucinations by enforcing strict conversational "pruning" and isolated project state management.
 
-It provides Claude with a solid REST-like JSON API to document and summarize its actions, bypassing the need for manual, error-prone file text editing.
+## 🛠 1. Requirements
 
-## Installation / Setup
+To use this server, you must have **Node.js** and **npm** installed on your system.
+- Download and install Node.js from the [official website](https://nodejs.org/). (Installation will automatically include `npm`).
+- Verify your installation by opening a terminal and running:
+  ```bash
+  node -v
+  npm -v
+  ```
 
-You do not need to download or clone the repository to use the tools. You can inject this MCP server into your local environment simply by updating your global Claude settings (e.g., `~/.claude_code/config.json` or Claude Desktop `claude_desktop_config.json`) with the NPM package:
+## 🚀 2. Installation & Setup
 
+You **do not** need to clone this repository manually to use the tools. Because the server is published to the global NPM registry, you can inject it into your environment simply by updating your Claude client's global settings (e.g., `~/.claude_code/config.json` for Claude Code or `claude_desktop_config.json` for Claude Desktop).
+
+Add the following block:
 ```json
 "mcpServers": {
   "context-bonsai": {
@@ -16,21 +26,33 @@ You do not need to download or clone the repository to use the tools. You can in
   }
 }
 ```
-*Note: Restart Claude after updating the global config!*
+*Note: Fully restart Claude after updating your configuration so it picks up the newly registered logic!*
 
-## Available MCP Tools
+## 🧠 3. The 4 Core Skills (Methodology)
 
-Once installed, Claude gains autonomous access to 3 core context tools:
+Context Bonsai brings 4 distinct "Skills" to Claude conceptually (typically enforced via a `CLAUDE.md` project manifesto):
 
-1. `read_project_state`: Fetches the `state.json` seamlessly without taking up massive token space reading file histories.
-2. `update_project_state`: Fully-typed API with built-in array handlers allowing Claude to change the project phase, append/resolve known issues (`add_issue`, `resolve_issue_id`), and manage objectives (`add_objective`, `remove_objective`) safely without deleting data.
-3. `prune_context_branch`: Triggers an autonomous slice of your conversational history. Drops the heavy context window and replaces a 50-message chat flow with a single highly dense "Root Cause, Solution, Files Mutated" hash inside `bonsai_logs.md`. Limits history to the latest 5 bugs (Rolling memory).
+1. **Dynamic Project Graph (State-Machine)**: Replaces parsing 500 lines of chat history with a clean `state.json` file.
+2. **Context Bonsai**: Automatically slices dead conversation branches after fixing a bug, leaving only the "Root Cause/Solution" hash in `bonsai_logs.md`.
+3. **Semantic Archiver**: Synthesizes long conversations into dense architectural facts safely migrated to `architecture.md`.
+4. **Fractal Context (Micro-Delegation)**: Enforces rules encouraging the agent to process granular tasks (like regex creation) silently in isolation rather than polluting the main context window with trial-and-error chatter.
 
-## Development
+## 🔌 4. The 3 Technical MCP Tools
 
-The project relies on `@modelcontextprotocol/sdk` and Zod.
+While there are 4 logical skills, the MCP Server exposes exactly **3 technical tools** to the LLM to achieve them securely under the hood:
 
+1. **`read_project_state`** 
+   - *What it does*: Silently fetches `state.json`, allowing Claude to remember the project phase seamlessly without wasting visual token space.
+2. **`update_project_state` (CRUD Array Handler)** 
+   - *What it does*: Provides native JSON mutation logic. It prevents the AI model from manually editing `state.json` as text. Supports `add_objective`, `remove_objective`, `add_issue`, and `resolve_issue_id` with 100% data-loss protection (ENOENT safety).
+3. **`prune_context_branch` (Rolling Memory Log)**
+   - *What it does*: Accepts the root cause of a solved bug and appends it to `bonsai_logs.md`. It implements a **Sliding Window Buffer** logic, keeping strictly the 5 latest bug logs to ensure the file never becomes a token black hole.
+
+---
+### 🖥 Development
+Want to extend the logic? Clone this repo and use:
 ```bash
 cd server
+npm i
 npm run build
 ```
