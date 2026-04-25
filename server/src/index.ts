@@ -110,34 +110,47 @@ server.tool(
     {
         issue_root_cause: z.string().describe("What exactly was the problem/bug"),
         final_solution: z.string().describe("How it was successfully fixed"),
-        mutated_files: z.array(z.string()).describe("Paths of the files that were touched")
+        mutated_files: z.array(z.string()).describe("Paths of the files that were touched"),
+        topic: z.string().describe("The semantic domain/module of this branch (e.g. 'Auth', 'UI', 'Database')")
     },
     async (args) => {
         const logPath = path.join(process.cwd(), "bonsai_logs.md");
-        const logEntry = `## 🌳 PRUNED BRANCH: ${new Date().toISOString()}\n**Root Cause:** ${args.issue_root_cause}\n**Solution:** ${args.final_solution}\n**Mutated Files:**\n${args.mutated_files.map(f => `- ${f}`).join("\n")}\n---\n`;
+        const topic = args.topic || "General";
+        const entryBody = `**Date:** ${new Date().toISOString()}\n**Root Cause:** ${args.issue_root_cause}\n**Solution:** ${args.final_solution}\n**Mutated Files:**\n${args.mutated_files.map((f: string) => `- ${f}`).join("\n")}\n---\n`;
 
         let existingLogs = "";
         try {
             existingLogs = await fs.readFile(logPath, "utf-8");
         } catch (e) {}
 
-        const separator = "## 🌳 PRUNED BRANCH:";
-        let entries = existingLogs
-            .split(separator)
-            .filter(e => e.trim().length > 0)
-            .map(e => separator + e);
+        const blocks = existingLogs.split(/^## Topic: /m).filter(b => b.trim().length > 0);
         
-        entries.push(logEntry);
-
-        const MAX_ENTRIES = 5;
-        if (entries.length > MAX_ENTRIES) {
-            entries = entries.slice(-MAX_ENTRIES);
+        const topicMap: Record<string, string[]> = {};
+        for (const block of blocks) {
+            const lines = block.split('\n');
+            const blockTopic = lines[0].trim();
+            const contentEntries = block.substring(lines[0].length).split(/^### 🌳 PRUNED BRANCH/m).filter(c => c.trim().length > 0);
+            topicMap[blockTopic] = contentEntries;
         }
 
-        await fs.writeFile(logPath, entries.join("\n"), "utf-8");
+        if (!topicMap[topic]) topicMap[topic] = [];
+        topicMap[topic].push(entryBody);
+
+        const MAX_PER_TOPIC = 3;
+        let finalMarkdown = "# 🌳 Semantic Context Logs\n\n";
+        
+        for (const [t, entries] of Object.entries(topicMap)) {
+            const prunedEntries = entries.length > MAX_PER_TOPIC ? entries.slice(-MAX_PER_TOPIC) : entries;
+            finalMarkdown += `## Topic: ${t}\n`;
+            for (const entry of prunedEntries) {
+                finalMarkdown += `### 🌳 PRUNED BRANCH\n${entry.trim()}\n\n`;
+            }
+        }
+
+        await fs.writeFile(logPath, finalMarkdown, "utf-8");
         
         return {
-            content: [{ type: "text", text: `Success: Dead branches pruned. Keeping strictly the latest ${MAX_ENTRIES} logs in bonsai_logs.md to preserve context tokens.` }]
+            content: [{ type: "text", text: `Success: Semantic pruning complete. Log added to topic [${topic}]. Retained top ${MAX_PER_TOPIC} logs per semantic topic.` }]
         };
     }
 );
