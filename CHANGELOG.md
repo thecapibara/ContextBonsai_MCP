@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.6] - 2026-04-25
+### Added
+- **Topic-Based Semantic Grouping**: Logs are now clustered by semantic domain (e.g., 'Auth', 'UI').
+- **Isolated Pruning**: Each topic maintains its own history limit (3 logs), preventing cross-topic data loss.
+
+## [1.0.4] - 2026-04-25
+### Fixed
+- Included `README.md` in the NPM package distribution for better registry visibility.
+
 ## [1.0.3] - 2026-04-25
 ### Added
 - Native Array Mutation logic (`add_objective`, `remove_objective`, `add_issue`, `resolve_issue_id`).

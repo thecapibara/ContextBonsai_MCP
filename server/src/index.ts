@@ -9,7 +9,7 @@ import * as process from "node:process";
 // Запускаємо сервер
 const server = new McpServer({
     name: "context-bonsai-mcp",
-    version: "1.0.0"
+    version: "1.0.6"
 });
 
 const DEFAULT_STATE = {
