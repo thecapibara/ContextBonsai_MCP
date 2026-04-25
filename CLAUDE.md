@@ -30,6 +30,7 @@ When a task is completed, a bug is fixed, or a refactoring is successful, the co
 1. Generate an `<entropy_reduction>` thought block internally.
 2. Formulate a dense, declarative summary containing ONLY: Root Cause, Final Solution, and Mutated Files.
 3. Use the `prune_context_branch` tool to append this summary to `bonsai_logs.md`.
+   - **Evergreen Mode**: If the fix is complex/critical, set `is_critical: true` to prevent it from being pruned.
 4. **Tag Discipline (Zod Enforced)**: You must categorize your logs using: `Logic`, `UI`, `Database`, `Auth`, `Infra`, or `Other`.
 5. **Atomic & Thread-Safety**: All writes are serialized via a singleton promise queue. Unique temp names prevent collision.
 6. **Disaster Recovery**: In case of crash, use `state.json.bak` or `bonsai_logs.md.bak`.
