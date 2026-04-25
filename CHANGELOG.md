@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.4.0] - 2026-04-25
+### Added
+- **AST JSDoc Preservation**: `preview_file_signatures` now dynamically extracts and prepends `/** ... */` JSDoc comments to function and class signatures, giving the LLM immediate context on parameter intent without reading the code block.
+- **AST Class Member Traversal**: The signature parser now recursively drops into `ClassDeclaration` nodes, extracting all `public` and `protected` methods/properties while automatically filtering out `private` internal logic to ensure the exported API surface is perfectly isolated.
+
 ## [1.3.1] - 2026-04-25
 ### Changed
 - **AST Signature Parser**: Completely refactored `preview_file_signatures`. Replaced naive string matching with official TypeScript compiler API (`ts.createSourceFile`). The tool now flawlessly parses multi-line signatures, ignores comments, avoids local variables, and accurately extracts `FunctionDeclaration`, `ClassDeclaration`, and schemas.

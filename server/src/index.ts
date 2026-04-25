@@ -14,7 +14,7 @@ const execAsync = promisify(exec);
 // Запускаємо сервер
 const server = new McpServer({
     name: "context-bonsai-mcp",
-    version: "1.3.1"
+    version: "1.4.0"
 });
 
 const DEFAULT_STATE = {
@@ -327,7 +327,6 @@ server.tool(
              return { isError: true, content: [{ type: "text", text: `Error reading file: ${e.message}` }] };
         }
 
-        // Real AST Parser for perfect signature extraction
         const sourceFile = ts.createSourceFile(
             path.basename(targetPath),
             code,
@@ -335,24 +334,64 @@ server.tool(
             true
         );
 
+        const getJSDoc = (node: ts.Node): string => {
+            const ranges = ts.getLeadingCommentRanges(code, node.pos);
+            if (!ranges) return "";
+            let docs = "";
+            for (const r of ranges) {
+                const comment = code.substring(r.pos, r.end);
+                if (comment.startsWith("/**")) {
+                    docs += comment + "\n";
+                }
+            }
+            return docs;
+        };
+
         const signatures: string[] = [];
 
         for (const statement of sourceFile.statements) {
             const isExported = ts.canHaveModifiers(statement) && ts.getModifiers(statement)?.some(m => m.kind === ts.SyntaxKind.ExportKeyword);
             if (!isExported) continue;
 
+            const doc = getJSDoc(statement);
+
             if (ts.isFunctionDeclaration(statement)) {
                 const start = statement.getStart(sourceFile);
                 const end = statement.body ? statement.body.getStart(sourceFile) : statement.getEnd();
                 let sig = code.substring(start, end).trim();
                 if (sig.endsWith('{')) sig = sig.slice(0, -1).trim();
-                signatures.push(sig + ";");
+                signatures.push(doc + sig + ";");
             } else if (ts.isClassDeclaration(statement)) {
                 let text = statement.getText(sourceFile);
-                let sig = text.split('{')[0].trim();
-                signatures.push(sig + " { ... }");
+                let sig = text.split('{')[0].trim() + " {\n";
+                
+                for (const member of statement.members) {
+                    const isPrivate = ts.canHaveModifiers(member) && ts.getModifiers(member)?.some(m => m.kind === ts.SyntaxKind.PrivateKeyword);
+                    if (isPrivate) continue;
+
+                    let mDoc = getJSDoc(member);
+                    if (mDoc) {
+                        sig += mDoc.split('\n').filter(l => l.trim()).map(l => "  " + l).join('\n') + "\n";
+                    }
+
+                    if (ts.isMethodDeclaration(member) || ts.isConstructorDeclaration(member)) {
+                        const start = member.getStart(sourceFile);
+                        const end = member.body ? member.body.getStart(sourceFile) : member.getEnd();
+                        let mSig = code.substring(start, end).trim();
+                        if (mSig.endsWith('{')) mSig = mSig.slice(0, -1).trim();
+                        sig += "  " + mSig + ";\n";
+                    } else if (ts.isPropertyDeclaration(member)) {
+                        const start = member.getStart(sourceFile);
+                        const end = member.initializer ? member.initializer.getStart(sourceFile) : member.getEnd();
+                        let mSig = code.substring(start, end).trim();
+                        if (mSig.endsWith('=')) mSig = mSig.slice(0, -1).trim();
+                        sig += "  " + mSig + ";\n";
+                    }
+                }
+                sig += "}";
+                signatures.push(doc + sig);
             } else if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) {
-                signatures.push(statement.getText(sourceFile));
+                signatures.push(doc + statement.getText(sourceFile));
             } else if (ts.isVariableStatement(statement)) {
                 for (const decl of statement.declarationList.declarations) {
                     if (decl.initializer && ts.isArrowFunction(decl.initializer)) {
@@ -361,11 +400,11 @@ server.tool(
                         let sig = code.substring(start, end).trim();
                         if (sig.endsWith('=>')) sig = sig.replace(/=>$/, '').trim();
                         if (sig.endsWith('{')) sig = sig.slice(0, -1).trim();
-                        signatures.push(sig + " => { ... }");
+                        signatures.push(doc + sig + " => { ... }");
                     } else {
                         let text = statement.getText(sourceFile);
                         if (text.length > 200) text = text.substring(0, 200) + "...";
-                        signatures.push(text);
+                        signatures.push(doc + text);
                     }
                 }
             }
