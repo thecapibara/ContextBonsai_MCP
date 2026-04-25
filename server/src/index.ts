@@ -13,7 +13,7 @@ const execAsync = promisify(exec);
 // Запускаємо сервер
 const server = new McpServer({
     name: "context-bonsai-mcp",
-    version: "1.2.0"
+    version: "1.3.0"
 });
 
 const DEFAULT_STATE = {
@@ -22,7 +22,8 @@ const DEFAULT_STATE = {
     active_objectives: [],
     completed_milestones: [],
     architecture_summary: "",
-    known_issues: []
+    known_issues: [],
+    strict_rules: []
 };
 
 let writeQueue = Promise.resolve();
@@ -224,6 +225,121 @@ server.tool(
         
         return {
             content: [{ type: "text", text: `Success: Semantic pruning complete. ${args.is_critical ? "Critical Log added." : "Standard Log added."} ${archivedContent ? "Old critical logs moved to Deep Archive." : ""}` }]
+        };
+    }
+);
+
+// 4. Управління жорсткими правилами
+server.tool(
+    "manage_strict_rules",
+    "Add or remove strict project rules to prevent AI hallucinations (e.g. 'Always use fetch, never axios').",
+    {
+        action: z.enum(["add", "remove"]).describe("Whether to add or remove a rule"),
+        rule: z.string().describe("The exact rule text")
+    },
+    async (args) => {
+        const statePath = path.join(process.cwd(), "state.json");
+        let state: any = { ...DEFAULT_STATE };
+        try {
+            const current = await fs.readFile(statePath, "utf-8");
+            state = { ...state, ...JSON.parse(current) };
+        } catch (e: any) {}
+
+        state.strict_rules = state.strict_rules || [];
+        
+        if (args.action === "add" && !state.strict_rules.includes(args.rule)) {
+            state.strict_rules.push(args.rule);
+        } else if (args.action === "remove") {
+            state.strict_rules = state.strict_rules.filter((r: string) => r !== args.rule);
+        }
+
+        await safeWrite(statePath, JSON.stringify(state, null, 2));
+        return {
+            content: [{ type: "text", text: `Success: Rule '${args.rule}' has been ${args.action}ed.` }]
+        };
+    }
+);
+
+// 5. Динамічний Фокус
+server.tool(
+    "set_focus_mode",
+    "Restricts the visible context to a specific topic by exporting a focused bonsai_focus.md file.",
+    {
+        topic: z.string().describe("The topic to focus on (e.g. 'Auth', 'UI') or null/empty to clear focus")
+    },
+    async (args) => {
+        const logPath = path.join(process.cwd(), "bonsai_logs.md");
+        const focusPath = path.join(process.cwd(), "bonsai_focus.md");
+        
+        if (!args.topic || args.topic.toLowerCase() === "clear") {
+            try { await fs.unlink(focusPath); } catch {}
+            return {
+                content: [{ type: "text", text: "Success: Focus Cleared. You may now read all topics." }]
+            };
+        }
+
+        let existingLogs = "";
+        try {
+            existingLogs = await fs.readFile(logPath, "utf-8");
+        } catch {}
+
+        const blocks = existingLogs.split(/^## Topic: /m).filter(b => b.trim().length > 0);
+        let focusedContent = `# 🎯 FOCUSED CONTEXT: ${args.topic}\n\n`;
+        let found = false;
+
+        for (const block of blocks) {
+            const lines = block.split('\n');
+            const blockTopic = lines[0].trim();
+            if (blockTopic.toLowerCase() === args.topic.toLowerCase()) {
+                focusedContent += `## Topic: ${blockTopic}\n` + block.substring(lines[0].length);
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            return {
+                content: [{ type: "text", text: `Error: Topic '${args.topic}' not found in logs.` }]
+            };
+        }
+
+        await safeWrite(focusPath, focusedContent);
+        return {
+            content: [{ type: "text", text: `Success: Focus Mode set to '${args.topic}'. bonsai_focus.md created. Only reference this file now.` }]
+        };
+    }
+);
+
+// 6. Кеш Сигнатур (Попередній перегляд коду)
+server.tool(
+    "preview_file_signatures",
+    "Generates a minimal signature view of a JS/TS file (exports, classes, functions) WITHOUT the actual code bodies, saving massive amounts of tokens.",
+    {
+        filePath: z.string().describe("Relative or absolute path to the TS/JS file")
+    },
+    async (args) => {
+        const targetPath = path.resolve(process.cwd(), args.filePath);
+        let code = "";
+        try {
+            code = await fs.readFile(targetPath, "utf-8");
+        } catch (e: any) {
+             return { isError: true, content: [{ type: "text", text: `Error reading file: ${e.message}` }] };
+        }
+
+        // Simple Regex AST approximation for token saving
+        const lines = code.split('\n');
+        const signatures = lines.filter(line => {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('export ') || trimmed.startsWith('export default ')) return true;
+            if (trimmed.startsWith('interface ') || trimmed.startsWith('type ')) return true;
+            if (trimmed.startsWith('class ') || trimmed.startsWith('function ')) return true;
+            if (trimmed.includes('=>') && (trimmed.startsWith('const ') || trimmed.startsWith('let '))) return true;
+            return false;
+        });
+
+        const output = `### Signature Preview: ${path.basename(targetPath)}\n\n${signatures.join('\n')}\n\n// Note: Code bodies have been stripped for token efficiency.`;
+        return {
+            content: [{ type: "text", text: output }]
         };
     }
 );

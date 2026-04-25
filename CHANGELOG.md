@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.3.0] - 2026-04-25
+### Added
+- **MCP Enterprise Survival Suite**:
+  - `manage_strict_rules`: Added persistent rule management in `state.json` (`strict_rules` array) to combat LLM hallucinations and enforce codebase conventions.
+  - `set_focus_mode`: Added dynamic context blinders. Forces the MCP to export only topic-specific logs into a temporary `bonsai_focus.md` to drastically cut token consumption during hyper-focused tasks.
+  - `preview_file_signatures`: Added AST approximation tool that extracts only function/class/interface signatures from JS/TS files, stripping the body logic, allowing the LLM to understand huge files without wasting tokens.
+
+## [1.2.0] - 2026-04-25
+### Added
+- **Deep Archive**: Automatic offloading of older Evergreen logs (🌟) to `bonsai_archive.md` when a topic's critical log count exceeds 5. This prevents context bloat while preserving 100% of the history.
+
 ## [1.1.0] - 2026-04-25
 ### Added
 - **Deep Archive**: Automatic offloading of older Evergreen logs (🌟) to `bonsai_archive.md` when a topic's critical log count exceeds 5. This prevents context bloat while preserving 100% of the history.
