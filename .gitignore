@@ -1,0 +1,12 @@
+node_modules/
+server/node_modules/
+build/
+server/build/
+.npmrc
+server/.npmrc
+package-lock.json
+server/package-lock.json
+
+# Локальні логі проєкту та стейт
+bonsai_logs.md
+state.json
