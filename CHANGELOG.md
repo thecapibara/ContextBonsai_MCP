@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.1.0] - 2026-04-26
+### Fixed
+- **Broken Concurrency**: Replaced the faulty IIFE promise queue with a true FIFO Mutex to ensure `safeWrite` operations are perfectly sequential.
+- **Path Traversal Security**: Implemented `getSafePath` and `BONSAI_ROOT` sandboxing. All file operations are now jailed within the project root to prevent accidental or malicious system-wide file access.
+- **Reliable CWD**: The server now uses an absolute `BONSAI_ROOT` instead of relying on the environment's `process.cwd()`, ensuring consistency in multi-project workflows.
+- **Version Mismatch**: Synchronized runtime version in `index.ts` with `package.json`.
+### Added
+- **Multi-language Support (Python)**: Added regex-based signature extraction for Python (`.py`) files to `preview_file_signatures` and `map_project_architecture`.
+- **Diagnostics Tool**: Added `run_diagnostics` to verify sandbox integrity and database health.
+
 ## [2.0.1] - 2026-04-26
 ### Fixed
 - **NPM Package**: Synced root README.md to the package directory to reflect the 8-tool Enterprise suite on the NPM registry.

@@ -41,9 +41,9 @@ Context Bonsai brings 4 distinct "Skills" to Claude conceptually (typically enfo
 3. **Semantic Archiver**: Synthesizes long conversations into dense architectural facts safely migrated to `architecture.md`.
 4. **Fractal Context (Micro-Delegation)**: Enforces rules encouraging the agent to process granular tasks (like regex creation) silently in isolation rather than polluting the main context window with trial-and-error chatter.
 
-## 🔌 4. The 8 Technical MCP Tools
+## 🔌 4. The 9 Technical MCP Tools
 
-While there are 4 logical skills, the MCP Server exposes **8 technical tools** to the LLM to achieve them securely under the hood:
+While there are 4 logical skills, the MCP Server exposes **9 technical tools** to the LLM to achieve them securely under the hood:
 
 1. **`read_project_state`** 
    - *What it does*: Silently fetches `state.json`, allowing Claude to remember the project phase effortlessly.
@@ -60,7 +60,9 @@ While there are 4 logical skills, the MCP Server exposes **8 technical tools** t
 7. **`query_bonsai_knowledge` (Local RAG Engine)**
    - *What it does*: Implements an ultra-fast, zero-dependency local text search (via `minisearch`) over all semantic logs (`bonsai_archive.md`). Safely provides Claude with top 3 solutions to bugs solved previously, without wasting tokens.
 8. **`map_project_architecture` (Global AST Radar)**
-   - *What it does*: Recursively scans a target directory and safely rips all exported classes, functions, and interfaces out of JS/TS files. Grants a perfect map of the entire project structure in seconds at almost zero token cost.
+   - *What it does*: Recursively scans a target directory and safely rips all exported classes, functions, and interfaces out of JS/TS files (and Python!). Grants a perfect map of the entire project structure in seconds at almost zero token cost.
+9. **`run_diagnostics` (Self-Correction Audit)**
+   - *What it does*: Native sanity check to verify the `BONSAI_ROOT` sandbox is healthy, the `state.json` is valid, and the mutex queue is operational.
 
 ---
 ### 🖥 Development

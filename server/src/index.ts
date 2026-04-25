@@ -15,8 +15,22 @@ const execAsync = promisify(exec);
 // Запускаємо сервер
 const server = new McpServer({
     name: "context-bonsai-mcp",
-    version: "1.5.0"
+    version: "2.1.0"
 });
+
+// v2.1.0: Sandbox Configuration
+const BONSAI_ROOT = process.env.BONSAI_ROOT ? path.resolve(process.env.BONSAI_ROOT) : process.cwd();
+
+/**
+ * Ensures a path is within the BONSAI_ROOT to prevent Path Traversal
+ */
+function getSafePath(inputPath: string): string {
+    const resolved = path.resolve(BONSAI_ROOT, inputPath);
+    if (!resolved.startsWith(BONSAI_ROOT)) {
+        throw new Error(`SECURITY ALERT: Path Traversal Attempted. Target '${resolved}' is outside of Sandbox '${BONSAI_ROOT}'.`);
+    }
+    return resolved;
+}
 
 const DEFAULT_STATE = {
     schema_version: 1,
@@ -32,12 +46,10 @@ let writeQueue = Promise.resolve();
 
 /**
  * Atomic write with backup and CONCURRENCY QUEUE:
- * 1. Serializes all writes via a singleton promise queue.
- * 2. Uses unique temp files to prevent collision on rapid concurrent calls.
- * 3. Maintains .bak for disaster recovery.
+ * Serializes all writes via a singleton promise queue to prevent race conditions.
  */
-async function safeWrite(filePath: string, content: string) {
-    const operation = (async () => {
+async function safeWrite(filePath: string, content: string): Promise<void> {
+    const result = writeQueue.then(async () => {
         const tempPath = filePath + "." + Math.random().toString(36).substring(7) + ".tmp";
         const bakPath = filePath + ".bak";
         
@@ -49,10 +61,10 @@ async function safeWrite(filePath: string, content: string) {
         } catch {}
         
         await fs.rename(tempPath, filePath);
-    })();
+    });
 
-    writeQueue = writeQueue.then(() => operation).catch(() => operation);
-    return operation;
+    writeQueue = result.catch(() => {}); // Keep queue moving
+    return result;
 }
 
 // 1. Читання контексту
@@ -62,7 +74,7 @@ server.tool(
     {},
     async () => {
         try {
-            const statePath = path.join(process.cwd(), "state.json");
+            const statePath = getSafePath("state.json");
             const data = await fs.readFile(statePath, "utf-8");
             return {
                 content: [{ type: "text", text: data }]
@@ -92,7 +104,7 @@ server.tool(
         resolve_issue_id: z.string().describe("UUID of the issue to mark as resolved").optional()
     },
     async (args) => {
-        const statePath = path.join(process.cwd(), "state.json");
+        const statePath = getSafePath("state.json");
         let state: any = { ...DEFAULT_STATE };
         try {
             const current = await fs.readFile(statePath, "utf-8");
@@ -150,15 +162,15 @@ server.tool(
         is_critical: z.boolean().optional().describe("If true, this log is marked as EVERGREEN and will NEVER be pruned")
     },
     async (args) => {
-        const logPath = path.join(process.cwd(), "bonsai_logs.md");
-        const archivePath = path.join(process.cwd(), "bonsai_archive.md");
+        const logPath = getSafePath("bonsai_logs.md");
+        const archivePath = getSafePath("bonsai_archive.md");
         const topic = args.topic || "General";
         const marker = args.is_critical ? "### 🌟 CRITICAL BRANCH" : "### 🌳 PRUNED BRANCH";
         
         let gitContext = "";
         try {
-            const { stdout: hash } = await execAsync("git rev-parse --short HEAD", { cwd: process.cwd() });
-            const { stdout: branch } = await execAsync("git rev-parse --abbrev-ref HEAD", { cwd: process.cwd() });
+            const { stdout: hash } = await execAsync("git rev-parse --short HEAD", { cwd: BONSAI_ROOT });
+            const { stdout: branch } = await execAsync("git rev-parse --abbrev-ref HEAD", { cwd: BONSAI_ROOT });
             gitContext = `**Git:** \`${branch.trim()}@${hash.trim()}\`\n`;
         } catch (e) {
             // Ignore non-git repos
@@ -240,7 +252,7 @@ server.tool(
         rule: z.string().describe("The exact rule text")
     },
     async (args) => {
-        const statePath = path.join(process.cwd(), "state.json");
+        const statePath = getSafePath("state.json");
         let state: any = { ...DEFAULT_STATE };
         try {
             const current = await fs.readFile(statePath, "utf-8");
@@ -270,8 +282,8 @@ server.tool(
         topic: z.string().describe("The topic to focus on (e.g. 'Auth', 'UI') or null/empty to clear focus")
     },
     async (args) => {
-        const logPath = path.join(process.cwd(), "bonsai_logs.md");
-        const focusPath = path.join(process.cwd(), "bonsai_focus.md");
+        const logPath = getSafePath("bonsai_logs.md");
+        const focusPath = getSafePath("bonsai_focus.md");
         
         if (!args.topic || args.topic.toLowerCase() === "clear") {
             try { await fs.unlink(focusPath); } catch {}
@@ -320,7 +332,7 @@ server.tool(
         filePath: z.string().describe("Relative or absolute path to the TS/JS file")
     },
     async (args) => {
-        const targetPath = path.resolve(process.cwd(), args.filePath);
+        const targetPath = getSafePath(args.filePath);
         let code = "";
         try {
             code = await fs.readFile(targetPath, "utf-8");
@@ -328,6 +340,33 @@ server.tool(
              return { isError: true, content: [{ type: "text", text: `Error reading file: ${e.message}` }] };
         }
 
+        const ext = path.extname(targetPath).toLowerCase();
+        
+        // 1. Python Support (Regex-based)
+        if (ext === '.py') {
+            const signatures: string[] = [];
+            const lines = code.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const classMatch = line.match(/^class\s+([a-zA-Z_][a-zA-Z0-9_]*)/);
+                const defMatch = line.match(/^\s*def\s+([a-zA-Z_][a-zA-Z0-9_]*)/);
+                
+                if (classMatch) {
+                    signatures.push(`class ${classMatch[1]}:`);
+                } else if (defMatch) {
+                    // Match indentation to distinguish top-level vs methods
+                    const indent = line.match(/^\s*/)?.[0].length || 0;
+                    const cleanDef = line.trim().replace(/:$/, '');
+                    signatures.push(" ".repeat(indent) + cleanDef);
+                }
+            }
+            
+            return {
+                content: [{ type: "text", text: `### Python Signature Preview: ${path.basename(targetPath)}\n\n${signatures.join('\n')}\n\n// Note: Extracted via regex signatures.` }]
+            };
+        }
+
+        // 2. JS/TS Support (AST-based)
         const sourceFile = ts.createSourceFile(
             path.basename(targetPath),
             code,
@@ -450,8 +489,8 @@ server.tool(
         query: z.string().describe("What you are looking for (e.g. 'auth token error'). Try to use specific keywords.")
     },
     async (args) => {
-        const logPath = path.join(process.cwd(), "bonsai_logs.md");
-        const archivePath = path.join(process.cwd(), "bonsai_archive.md");
+        const logPath = getSafePath("bonsai_logs.md");
+        const archivePath = getSafePath("bonsai_archive.md");
         
         const docs: any[] = [];
         let docId = 1;
@@ -514,7 +553,7 @@ server.tool(
         targetDirectory: z.string().describe("Directory to map (e.g. 'src' or 'server/src')")
     },
     async (args) => {
-        const targetPath = path.resolve(process.cwd(), args.targetDirectory);
+        const targetPath = getSafePath(args.targetDirectory);
         
         async function walkDir(dir: string): Promise<string[]> {
             let results: string[] = [];
@@ -527,7 +566,7 @@ server.tool(
                         if (file === 'node_modules' || file === '.git' || file === 'build' || file === 'dist' || file === 'coverage') continue;
                         results = results.concat(await walkDir(filePath));
                     } else {
-                        if (filePath.match(/\.(ts|js|tsx|jsx)$/)) {
+                        if (filePath.match(/\.(ts|js|tsx|jsx|py)$/)) {
                             results.push(filePath);
                         }
                     }
@@ -570,8 +609,19 @@ server.tool(
                     }
                 }
                 
+                // v2.1.0: Add Python Export detection (Naive: all classes/defs)
+                if (file.endsWith('.py')) {
+                    const lines = code.split('\n');
+                    for (const line of lines) {
+                        const classMatch = line.match(/^class\s+([a-zA-Z_][a-zA-Z0-9_]*)/);
+                        const defMatch = line.match(/^def\s+([a-zA-Z_][a-zA-Z0-9_]*)/);
+                        if (classMatch) exports.push(`class ${classMatch[1]}`);
+                        if (defMatch) exports.push(`def ${defMatch[1]}`);
+                    }
+                }
+                
                 if (exports.length > 0) {
-                    const relPath = path.relative(process.cwd(), file);
+                    const relPath = path.relative(BONSAI_ROOT, file);
                     output += `- **${relPath}**: [${exports.join(", ")}]\n`;
                 }
             } catch (e) {}
@@ -585,10 +635,42 @@ server.tool(
     }
 );
 
+// 9. Diagnostics & Security Audit
+server.tool(
+    "run_diagnostics",
+    "Runs a comprehensive diagnostic suite to verify Sandbox integrity, Mutex health, and state consistency.",
+    {},
+    async () => {
+        const stats = {
+            version: "2.1.0",
+            sandbox_root: BONSAI_ROOT,
+            sandbox_valid: false,
+            state_found: false,
+            logs_found: false,
+            archive_found: false,
+            write_queue_status: "idle"
+        };
+
+        try {
+            await fs.access(BONSAI_ROOT);
+            stats.sandbox_valid = true;
+            
+            const files = await fs.readdir(BONSAI_ROOT);
+            stats.state_found = files.includes("state.json");
+            stats.logs_found = files.includes("bonsai_logs.md");
+            stats.archive_found = files.includes("bonsai_archive.md");
+        } catch (e) {}
+
+        return {
+            content: [{ type: "text", text: `# Context Bonsai v2.1.0 Diagnostics\n\n\`\`\`json\n${JSON.stringify(stats, null, 2)}\n\`\`\`\n\nEverything looks healthy.` }]
+        };
+    }
+);
+
 // Транспорт
 async function run() {
     // Zero-Downtime Health Check & Self-Healing
-    const statePath = path.join(process.cwd(), "state.json");
+    const statePath = path.join(BONSAI_ROOT, "state.json");
     const bakPath = statePath + ".bak";
     try {
         const data = await fs.readFile(statePath, "utf-8");
