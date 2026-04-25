@@ -33,7 +33,9 @@ When a task is completed, a bug is fixed, or a refactoring is successful, the co
    - **Evergreen Mode**: If the fix is complex/critical, set `is_critical: true` to prevent it from being pruned.
 4. **Tag Discipline (Zod Enforced)**: You must categorize your logs using: `Logic`, `UI`, `Database`, `Auth`, `Infra`, or `Other`.
 5. **Atomic & Thread-Safety**: All writes are serialized via a singleton promise queue. Unique temp names prevent collision.
-6. **Disaster Recovery**: In case of crash, use `state.json.bak` or `bonsai_logs.md.bak`.
+6. **Disaster Recovery & Archiving**: 
+   - Use `state.json.bak` and `bonsai_logs.md.bak` for recovery.
+   - Old Evergreen logs are moved to `bonsai_archive.md` to stay token-efficient.
 7. Update the project state using `update_project_state`. Always use tools for state changes; never edit JSON manually.
 </context_bonsai>
 
