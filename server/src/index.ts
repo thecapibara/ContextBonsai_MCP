@@ -7,13 +7,14 @@ import * as path from "node:path";
 import * as process from "node:process";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
+import * as ts from "typescript";
 
 const execAsync = promisify(exec);
 
 // Запускаємо сервер
 const server = new McpServer({
     name: "context-bonsai-mcp",
-    version: "1.3.0"
+    version: "1.3.1"
 });
 
 const DEFAULT_STATE = {
@@ -326,18 +327,51 @@ server.tool(
              return { isError: true, content: [{ type: "text", text: `Error reading file: ${e.message}` }] };
         }
 
-        // Simple Regex AST approximation for token saving
-        const lines = code.split('\n');
-        const signatures = lines.filter(line => {
-            const trimmed = line.trim();
-            if (trimmed.startsWith('export ') || trimmed.startsWith('export default ')) return true;
-            if (trimmed.startsWith('interface ') || trimmed.startsWith('type ')) return true;
-            if (trimmed.startsWith('class ') || trimmed.startsWith('function ')) return true;
-            if (trimmed.includes('=>') && (trimmed.startsWith('const ') || trimmed.startsWith('let '))) return true;
-            return false;
-        });
+        // Real AST Parser for perfect signature extraction
+        const sourceFile = ts.createSourceFile(
+            path.basename(targetPath),
+            code,
+            ts.ScriptTarget.Latest,
+            true
+        );
 
-        const output = `### Signature Preview: ${path.basename(targetPath)}\n\n${signatures.join('\n')}\n\n// Note: Code bodies have been stripped for token efficiency.`;
+        const signatures: string[] = [];
+
+        for (const statement of sourceFile.statements) {
+            const isExported = ts.canHaveModifiers(statement) && ts.getModifiers(statement)?.some(m => m.kind === ts.SyntaxKind.ExportKeyword);
+            if (!isExported) continue;
+
+            if (ts.isFunctionDeclaration(statement)) {
+                const start = statement.getStart(sourceFile);
+                const end = statement.body ? statement.body.getStart(sourceFile) : statement.getEnd();
+                let sig = code.substring(start, end).trim();
+                if (sig.endsWith('{')) sig = sig.slice(0, -1).trim();
+                signatures.push(sig + ";");
+            } else if (ts.isClassDeclaration(statement)) {
+                let text = statement.getText(sourceFile);
+                let sig = text.split('{')[0].trim();
+                signatures.push(sig + " { ... }");
+            } else if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) {
+                signatures.push(statement.getText(sourceFile));
+            } else if (ts.isVariableStatement(statement)) {
+                for (const decl of statement.declarationList.declarations) {
+                    if (decl.initializer && ts.isArrowFunction(decl.initializer)) {
+                        const start = statement.getStart(sourceFile);
+                        const end = decl.initializer.body.getStart(sourceFile);
+                        let sig = code.substring(start, end).trim();
+                        if (sig.endsWith('=>')) sig = sig.replace(/=>$/, '').trim();
+                        if (sig.endsWith('{')) sig = sig.slice(0, -1).trim();
+                        signatures.push(sig + " => { ... }");
+                    } else {
+                        let text = statement.getText(sourceFile);
+                        if (text.length > 200) text = text.substring(0, 200) + "...";
+                        signatures.push(text);
+                    }
+                }
+            }
+        }
+
+        const output = `### Signature Preview: ${path.basename(targetPath)}\n\n${signatures.join('\n\n')}\n\n// Note: Code bodies have been stripped for token efficiency using AST parsing.`;
         return {
             content: [{ type: "text", text: output }]
         };

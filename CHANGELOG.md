@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.3.1] - 2026-04-25
+### Changed
+- **AST Signature Parser**: Completely refactored `preview_file_signatures`. Replaced naive string matching with official TypeScript compiler API (`ts.createSourceFile`). The tool now flawlessly parses multi-line signatures, ignores comments, avoids local variables, and accurately extracts `FunctionDeclaration`, `ClassDeclaration`, and schemas.
+
 ## [1.3.0] - 2026-04-25
 ### Added
 - **MCP Enterprise Survival Suite**:
