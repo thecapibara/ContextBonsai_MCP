@@ -1,5 +1,9 @@
 # Changelog
 
+## [2.0.1] - 2026-04-26
+### Fixed
+- **NPM Package**: Synced root README.md to the package directory to reflect the 8-tool Enterprise suite on the NPM registry.
+
 ## [2.0.0] - 2026-04-26
 ### Added
 - **The RAG Engine (`query_bonsai_knowledge`)**: Added `minisearch` to perform zero-dependency local text searches over active and archived semantic logs. Safely returns historically solved tickets via LLM invocation.
