@@ -1,6 +1,11 @@
 # Changelog
 
-## [1.4.1] - 2026-04-25
+## [1.5.0] - 2026-04-25
+### Added
+- **Dependency Mapping**: `preview_file_signatures` now dynamically extracts and compresses all file imports (`{ X, Y } from 'Z'`) into a 1-line native header, completely eliminating "Blind Spots" without costing heavy tokens.
+- **Zero-Downtime Health Checks**: Context Bonsai server now runs a silent integrity check on `state.json` on boot. If corrupted via crash or LLM-hallucination, the server will instantly and silently self-heal using the `.bak` atomic backup before mounting the Stdio transport to the LLM.
+
+## [1.4.2] - 2026-04-25
 ### Changed
 - **Token Guardrails**: Added strict bounds to the AST parser to prevent massive files from generating equally massive signature maps. JSDoc strings are now truncated to their first summary line (omitting `@params`, `@returns`), and classes with more than 15 public methods will cleanly truncate the remaining members with a single line `// ... and X more members omitted`.
 

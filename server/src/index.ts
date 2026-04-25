@@ -14,7 +14,7 @@ const execAsync = promisify(exec);
 // Запускаємо сервер
 const server = new McpServer({
     name: "context-bonsai-mcp",
-    version: "1.4.1"
+    version: "1.5.0"
 });
 
 const DEFAULT_STATE = {
@@ -350,8 +350,15 @@ server.tool(
         };
 
         const signatures: string[] = [];
+        const imports: string[] = [];
 
         for (const statement of sourceFile.statements) {
+            if (ts.isImportDeclaration(statement)) {
+                let text = statement.getText(sourceFile);
+                imports.push(text.replace(/^import\s+/, '').replace(/;$/, '').trim());
+                continue;
+            }
+
             const isExported = ts.canHaveModifiers(statement) && ts.getModifiers(statement)?.some(m => m.kind === ts.SyntaxKind.ExportKeyword);
             if (!isExported) continue;
 
@@ -422,7 +429,12 @@ server.tool(
             }
         }
 
-        const output = `### Signature Preview: ${path.basename(targetPath)}\n\n${signatures.join('\n\n')}\n\n// Note: Code bodies have been stripped for token efficiency using AST parsing.`;
+        let output = `### Signature Preview: ${path.basename(targetPath)}\n\n`;
+        if (imports.length > 0) {
+            output += `// Dependency Map:\n// ${imports.join(' | ')}\n\n`;
+        }
+        output += `${signatures.join('\n\n')}\n\n// Note: Code bodies have been stripped for token efficiency using AST parsing.`;
+        
         return {
             content: [{ type: "text", text: output }]
         };
@@ -431,6 +443,24 @@ server.tool(
 
 // Транспорт
 async function run() {
+    // Zero-Downtime Health Check & Self-Healing
+    const statePath = path.join(process.cwd(), "state.json");
+    const bakPath = statePath + ".bak";
+    try {
+        const data = await fs.readFile(statePath, "utf-8");
+        JSON.parse(data);
+    } catch (e: any) {
+        if (e.code !== 'ENOENT') {
+            try {
+                await fs.access(bakPath);
+                await fs.copyFile(bakPath, statePath);
+                console.error("[Context Bonsai Health] Corrupted state.json detected. Auto-restored from .bak.");
+            } catch (bakErr) {
+                console.error("[Context Bonsai Health] Warning: state.json is corrupted and no valid backup was found.");
+            }
+        }
+    }
+
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error("Context Bonsai MCP Server running on stdio");
