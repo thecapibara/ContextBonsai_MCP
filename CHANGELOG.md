@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.1.0] - 2026-04-25
+### Added
+- **Deep Archive**: Automatic offloading of older Evergreen logs (🌟) to `bonsai_archive.md` when a topic's critical log count exceeds 5. This prevents context bloat while preserving 100% of the history.
+
 ## [1.0.9] - 2026-04-25
 ### Added
 - **Evergreen Logs**: Introduced `is_critical` flag for branches. Critical logs (🌟) bypass the pruning limit to prevent knowledge degradation.

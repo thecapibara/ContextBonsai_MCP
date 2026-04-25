@@ -9,7 +9,7 @@ import * as process from "node:process";
 // Запускаємо сервер
 const server = new McpServer({
     name: "context-bonsai-mcp",
-    version: "1.0.9"
+    version: "1.1.0"
 });
 
 const DEFAULT_STATE = {
@@ -144,6 +144,7 @@ server.tool(
     },
     async (args) => {
         const logPath = path.join(process.cwd(), "bonsai_logs.md");
+        const archivePath = path.join(process.cwd(), "bonsai_archive.md");
         const topic = args.topic || "General";
         const marker = args.is_critical ? "### 🌟 CRITICAL BRANCH" : "### 🌳 PRUNED BRANCH";
         const entryBody = `**Date:** ${new Date().toISOString()}\n**Root Cause:** ${args.issue_root_cause}\n**Solution:** ${args.final_solution}\n**Mutated Files:**\n${args.mutated_files.map((f: string) => `- ${f}`).join("\n")}\n---\n`;
@@ -159,7 +160,6 @@ server.tool(
         for (const block of blocks) {
             const lines = block.split('\n');
             const blockTopic = lines[0].trim();
-            // Split by both markers, preserving the marker in the content
             const contentEntries = block.substring(lines[0].length)
                 .split(/^(?=### [🌳🌟] (?:PRUNED|CRITICAL) BRANCH)/m)
                 .filter(c => c.trim().length > 0);
@@ -170,7 +170,9 @@ server.tool(
         topicMap[topic].push(`${marker}\n${entryBody}`);
 
         const MAX_PRUNED_PER_TOPIC = 3;
+        const MAX_EVERGREEN_PER_TOPIC = 5;
         let finalMarkdown = "# 🌳 Semantic Context Logs\n\n";
+        let archivedContent = "";
         
         for (const [t, entries] of Object.entries(topicMap)) {
             finalMarkdown += `## Topic: ${t}\n`;
@@ -178,10 +180,17 @@ server.tool(
             const criticals = entries.filter(e => e.includes("🌟 CRITICAL BRANCH"));
             const pruned = entries.filter(e => e.includes("🌳 PRUNED BRANCH"));
             
-            // Keep all criticals, but only the last N pruned
+            // Handle Evergreen Overflow (Deep Archive)
+            let keptEvergreens = criticals;
+            if (criticals.length > MAX_EVERGREEN_PER_TOPIC) {
+                const toArchive = criticals.slice(0, criticals.length - MAX_EVERGREEN_PER_TOPIC);
+                keptEvergreens = criticals.slice(-MAX_EVERGREEN_PER_TOPIC);
+                archivedContent += `## 🏺 ARCHIVED TOPIC: ${t} (${new Date().toISOString()})\n${toArchive.join("\n\n")}\n---\n`;
+            }
+
             const keptPruned = pruned.slice(-MAX_PRUNED_PER_TOPIC);
             
-            for (const entry of criticals) {
+            for (const entry of keptEvergreens) {
                 finalMarkdown += `${entry.trim()}\n\n`;
             }
             for (const entry of keptPruned) {
@@ -191,8 +200,16 @@ server.tool(
 
         await safeWrite(logPath, finalMarkdown);
         
+        if (archivedContent) {
+            let existingArchive = "";
+            try {
+                existingArchive = await fs.readFile(archivePath, "utf-8");
+            } catch {}
+            await safeWrite(archivePath, (existingArchive || "# 🏺 Context Bonsai Deep Archive\n\n") + archivedContent);
+        }
+        
         return {
-            content: [{ type: "text", text: `Success: Semantic pruning complete. Log added to topic [${topic}]. ${args.is_critical ? "Log marked as EVERGREEN (Critical)." : `Retained top ${MAX_PRUNED_PER_TOPIC} standard logs.`}` }]
+            content: [{ type: "text", text: `Success: Semantic pruning complete. ${args.is_critical ? "Critical Log added." : "Standard Log added."} ${archivedContent ? "Old critical logs moved to Deep Archive." : ""}` }]
         };
     }
 );
