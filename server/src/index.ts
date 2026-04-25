@@ -9,7 +9,7 @@ import * as process from "node:process";
 // Запускаємо сервер
 const server = new McpServer({
     name: "context-bonsai-mcp",
-    version: "1.0.6"
+    version: "1.0.8"
 });
 
 const DEFAULT_STATE = {
@@ -20,24 +20,31 @@ const DEFAULT_STATE = {
     known_issues: []
 };
 
+let writeQueue = Promise.resolve();
+
 /**
- * Atomic write with backup:
- * 1. Writes to .tmp
- * 2. Copies current to .bak
- * 3. Renames .tmp to current
+ * Atomic write with backup and CONCURRENCY QUEUE:
+ * 1. Serializes all writes via a singleton promise queue.
+ * 2. Uses unique temp files to prevent collision on rapid concurrent calls.
+ * 3. Maintains .bak for disaster recovery.
  */
 async function safeWrite(filePath: string, content: string) {
-    const tempPath = filePath + ".tmp";
-    const bakPath = filePath + ".bak";
-    
-    await fs.writeFile(tempPath, content, "utf-8");
-    
-    try {
-        await fs.access(filePath);
-        await fs.copyFile(filePath, bakPath);
-    } catch {}
-    
-    await fs.rename(tempPath, filePath);
+    const operation = (async () => {
+        const tempPath = filePath + "." + Math.random().toString(36).substring(7) + ".tmp";
+        const bakPath = filePath + ".bak";
+        
+        await fs.writeFile(tempPath, content, "utf-8");
+        
+        try {
+            await fs.access(filePath);
+            await fs.copyFile(filePath, bakPath);
+        } catch {}
+        
+        await fs.rename(tempPath, filePath);
+    })();
+
+    writeQueue = writeQueue.then(() => operation).catch(() => operation);
+    return operation;
 }
 
 // 1. Читання контексту
@@ -131,7 +138,7 @@ server.tool(
         issue_root_cause: z.string().describe("What exactly was the problem/bug"),
         final_solution: z.string().describe("How it was successfully fixed"),
         mutated_files: z.array(z.string()).describe("Paths of the files that were touched"),
-        topic: z.string().describe("The semantic domain/module of this branch (e.g. 'Auth', 'UI', 'Database')")
+        topic: z.enum(["Logic", "UI", "Database", "Auth", "Infra", "Other"]).describe("The semantic domain/module of this branch")
     },
     async (args) => {
         const logPath = path.join(process.cwd(), "bonsai_logs.md");

@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.8] - 2026-04-25
+### Added
+- **Concurrency Queue**: All file writes are now serialized via a singleton promise queue to prevent race conditions.
+- **Collision Protection**: Unique temporary filenames (randomized) used during atomic writes to prevent locking issues.
+- **Strict Tag Validation**: `prune_context_branch` now enforces a specific set of tags via Zod Enum.
+
 ## [1.0.7] - 2026-04-25
 ### Added
 - **Atomic Writes**: Implemented write-to-temp-and-rename pattern to prevent file corruption during crashes.
