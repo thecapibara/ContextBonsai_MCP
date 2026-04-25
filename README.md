@@ -41,16 +41,22 @@ Context Bonsai brings 4 distinct "Skills" to Claude conceptually (typically enfo
 3. **Semantic Archiver**: Synthesizes long conversations into dense architectural facts safely migrated to `architecture.md`.
 4. **Fractal Context (Micro-Delegation)**: Enforces rules encouraging the agent to process granular tasks (like regex creation) silently in isolation rather than polluting the main context window with trial-and-error chatter.
 
-## 🔌 4. The 3 Technical MCP Tools
+## 🔌 4. The 6 Technical MCP Tools
 
-While there are 4 logical skills, the MCP Server exposes exactly **3 technical tools** to the LLM to achieve them securely under the hood:
+While there are 4 logical skills, the MCP Server exposes **6 technical tools** to the LLM to achieve them securely under the hood:
 
 1. **`read_project_state`** 
-   - *What it does*: Silently fetches `state.json`, allowing Claude to remember the project phase seamlessly without wasting visual token space.
+   - *What it does*: Silently fetches `state.json`, allowing Claude to remember the project phase effortlessly.
 2. **`update_project_state` (CRUD Array Handler)** 
-   - *What it does*: Provides native JSON mutation logic. It prevents the AI model from manually editing `state.json` as text. Supports `add_objective`, `remove_objective`, `add_issue`, and `resolve_issue_id` with 100% data-loss protection (ENOENT safety).
-3. **`prune_context_branch` (Rolling Memory Log)**
-   - *What it does*: Accepts the root cause of a solved bug and appends it to `bonsai_logs.md`. It implements a **Sliding Window Buffer** logic, keeping strictly the 5 latest bug logs to ensure the file never becomes a token black hole.
+   - *What it does*: Provides native JSON mutation logic natively wrapped in Thread-Safe singleton Promise queues and atomic file swaps. 
+3. **`prune_context_branch` (Semantic Archiver)**
+   - *What it does*: Saves completed logic context in `bonsai_logs.md`. It implements a semantic sliding window, and offloads old logs to `bonsai_archive.md`. Also embeds Git hashes unconditionally for offline tracing.
+4. **`manage_strict_rules` (Anti-Hallucination Guard)**
+   - *What it does*: Mutates a strict rule array to build unbreakable laws across sessions.
+5. **`set_focus_mode` (Dynamic Blinders)**
+   - *What it does*: Forces the LLM to only inspect relevant contexts via a temporary `bonsai_focus.md`, reducing inference overload on large setups.
+6. **`preview_file_signatures` (AST Map Generator)**
+   - *What it does*: Powerful AST parser (`ts.createSourceFile`). Rather than reading a 2000-line TypeScript file, this tool drops out the bodies, extracts `public` Class members, and captures `JSDoc` blocks natively. It implements strict token guardrails (max 15 methods).
 
 ---
 ### 🖥 Development
