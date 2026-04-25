@@ -41,9 +41,9 @@ Context Bonsai brings 4 distinct "Skills" to Claude conceptually (typically enfo
 3. **Semantic Archiver**: Synthesizes long conversations into dense architectural facts safely migrated to `architecture.md`.
 4. **Fractal Context (Micro-Delegation)**: Enforces rules encouraging the agent to process granular tasks (like regex creation) silently in isolation rather than polluting the main context window with trial-and-error chatter.
 
-## 🔌 4. The 6 Technical MCP Tools
+## 🔌 4. The 8 Technical MCP Tools
 
-While there are 4 logical skills, the MCP Server exposes **6 technical tools** to the LLM to achieve them securely under the hood:
+While there are 4 logical skills, the MCP Server exposes **8 technical tools** to the LLM to achieve them securely under the hood:
 
 1. **`read_project_state`** 
    - *What it does*: Silently fetches `state.json`, allowing Claude to remember the project phase effortlessly.
@@ -57,6 +57,10 @@ While there are 4 logical skills, the MCP Server exposes **6 technical tools** t
    - *What it does*: Forces the LLM to only inspect relevant contexts via a temporary `bonsai_focus.md`, reducing inference overload on large setups.
 6. **`preview_file_signatures` (AST Map Generator)**
    - *What it does*: Powerful AST parser (`ts.createSourceFile`). Rather than reading a 2000-line TypeScript file, this tool drops out the bodies, extracts `public` Class members, and captures `JSDoc` blocks natively. It implements strict token guardrails (max 15 methods).
+7. **`query_bonsai_knowledge` (Local RAG Engine)**
+   - *What it does*: Implements an ultra-fast, zero-dependency local text search (via `minisearch`) over all semantic logs (`bonsai_archive.md`). Safely provides Claude with top 3 solutions to bugs solved previously, without wasting tokens.
+8. **`map_project_architecture` (Global AST Radar)**
+   - *What it does*: Recursively scans a target directory and safely rips all exported classes, functions, and interfaces out of JS/TS files. Grants a perfect map of the entire project structure in seconds at almost zero token cost.
 
 ---
 ### 🖥 Development

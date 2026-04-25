@@ -40,6 +40,7 @@ When a task is completed, a bug is fixed, or a refactoring is successful, the co
 
 ### Available Tools
 You have access to 6 specialized MCP tools provided by Context Bonsai. ALWAYS use these tools instead of generic file editing or arbitrary analysis.
+You have access to 8 specialized MCP tools provided by Context Bonsai. ALWAYS use these tools instead of generic file editing or arbitrary analysis.
 
 1. **`read_project_state`**: Use this immediately upon starting a session to understand the current phase, objectives, and strict rules.
 2. **`update_project_state`**: Use this to mark objectives as complete or add new known issues. NEVER edit `state.json` manually with sed/echo/replace.
@@ -47,6 +48,8 @@ You have access to 6 specialized MCP tools provided by Context Bonsai. ALWAYS us
 4. **`manage_strict_rules`**: Add or remove rigid architectural laws (e.g. "Always use fetch"). Check `strict_rules` from the state; obey them mercilessly.
 5. **`set_focus_mode`**: If you feel overwhelmed by too much context, call this with a topic (e.g., "UI"). It generates `bonsai_focus.md`. Treat that as your only source of truth until you clear it.
 6. **`preview_file_signatures`**: If you need to understand the exports of a massive file (e.g., `utils.ts` or a big component), NEVER read the entire file first. Call this tool to get a lightweight map of function signatures and types.
+7. **`query_bonsai_knowledge`**: If you need to access historical fixes, you MUST invoke this tool with a specific keyword query instead of reading `bonsai_logs.md` or `bonsai_archive.md` manually.
+8. **`map_project_architecture`**: Use this to get a broad view of the project's logic BEFORE randomly searching standard files.
 
 ## Behavioral Directives
 - If you observe the conversation exceeding 15 continuous messages on a single complex topic, proactively synthesize the findings.

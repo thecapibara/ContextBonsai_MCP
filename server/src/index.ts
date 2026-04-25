@@ -8,6 +8,7 @@ import * as process from "node:process";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import * as ts from "typescript";
+import MiniSearch from "minisearch";
 
 const execAsync = promisify(exec);
 
@@ -438,6 +439,149 @@ server.tool(
         return {
             content: [{ type: "text", text: output }]
         };
+    }
+);
+
+// 7. RAG Knowledge Query (Local Text Emulation)
+server.tool(
+    "query_bonsai_knowledge",
+    "Performs a local, zero-dependency RAG (Retrieval-Augmented Generation) search over the active and deep-archived semantic logs. Extremely useful to find exactly how you solved an old bug without hallucinating.",
+    {
+        query: z.string().describe("What you are looking for (e.g. 'auth token error'). Try to use specific keywords.")
+    },
+    async (args) => {
+        const logPath = path.join(process.cwd(), "bonsai_logs.md");
+        const archivePath = path.join(process.cwd(), "bonsai_archive.md");
+        
+        const docs: any[] = [];
+        let docId = 1;
+
+        async function extractEntries(filePath: string) {
+            try {
+                const content = await fs.readFile(filePath, "utf-8");
+                const split = content.split(/(?=### [🌳🌟] (?:PRUNED|CRITICAL) BRANCH)/);
+                for (const s of split) {
+                    if (s.includes("Root Cause:")) {
+                        docs.push({ id: docId++, text: s.trim() });
+                    }
+                }
+            } catch (e) {}
+        }
+
+        await extractEntries(logPath);
+        await extractEntries(archivePath);
+
+        if (docs.length === 0) {
+            return {
+                content: [{ type: "text", text: "Error: No semantic logs or archives found in the current project." }]
+            };
+        }
+
+        const miniSearch = new MiniSearch({
+            fields: ['text'], 
+            storeFields: ['text'] 
+        });
+
+        miniSearch.addAll(docs);
+        
+        const results = miniSearch.search(args.query, { prefix: true, fuzzy: 0.2 });
+        const topResults = results.slice(0, 3);
+
+        if (topResults.length === 0) {
+            return {
+                content: [{ type: "text", text: `No matches found in Bonsai Knowledge for query: "${args.query}"` }]
+            };
+        }
+
+        let output = `# RAG Search Results for: "${args.query}"\n\n`;
+        output += `Found ${results.length} matches. Showing Top ${topResults.length}:\n\n---\n\n`;
+        
+        for (const res of topResults) {
+            output += `${res.text}\n\n---\n\n`;
+        }
+
+        return {
+            content: [{ type: "text", text: output }]
+        };
+    }
+);
+
+// 8. Global AST Architecture Map
+server.tool(
+    "map_project_architecture",
+    "Performs a recursive AST scan of a directory to extract ONLY the exported class names, function names, and interfaces. Extremely token-efficient way to get a bird's eye view of the entire project structure without reading files.",
+    {
+        targetDirectory: z.string().describe("Directory to map (e.g. 'src' or 'server/src')")
+    },
+    async (args) => {
+        const targetPath = path.resolve(process.cwd(), args.targetDirectory);
+        
+        async function walkDir(dir: string): Promise<string[]> {
+            let results: string[] = [];
+            try {
+                const list = await fs.readdir(dir);
+                for (const file of list) {
+                    const filePath = path.join(dir, file);
+                    const stat = await fs.stat(filePath);
+                    if (stat && stat.isDirectory()) {
+                        if (file === 'node_modules' || file === '.git' || file === 'build' || file === 'dist' || file === 'coverage') continue;
+                        results = results.concat(await walkDir(filePath));
+                    } else {
+                        if (filePath.match(/\.(ts|js|tsx|jsx)$/)) {
+                            results.push(filePath);
+                        }
+                    }
+                }
+            } catch (e) {}
+            return results;
+        }
+        
+        const files = await walkDir(targetPath);
+        if (files.length === 0) {
+            return { content: [{ type: "text", text: `No TS/JS files found in ${args.targetDirectory}` }] };
+        }
+
+        let output = `### Project Architecture Map (${args.targetDirectory})\n\n`;
+        
+        for (const file of files) {
+            try {
+                const code = await fs.readFile(file, "utf-8");
+                const sourceFile = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true);
+                const exports: string[] = [];
+
+                for (const statement of sourceFile.statements) {
+                    const isExported = ts.canHaveModifiers(statement) && ts.getModifiers(statement)?.some(m => m.kind === ts.SyntaxKind.ExportKeyword);
+                    if (!isExported) continue;
+
+                    if (ts.isFunctionDeclaration(statement) && statement.name) {
+                        exports.push(`function ${statement.name.text}`);
+                    } else if (ts.isClassDeclaration(statement) && statement.name) {
+                        exports.push(`class ${statement.name.text}`);
+                    } else if (ts.isInterfaceDeclaration(statement) && statement.name) {
+                        exports.push(`interface ${statement.name.text}`);
+                    } else if (ts.isTypeAliasDeclaration(statement) && statement.name) {
+                        exports.push(`type ${statement.name.text}`);
+                    } else if (ts.isVariableStatement(statement)) {
+                        for (const dec of statement.declarationList.declarations) {
+                            if (ts.isIdentifier(dec.name)) {
+                                exports.push(`var ${dec.name.text}`);
+                            }
+                        }
+                    }
+                }
+                
+                if (exports.length > 0) {
+                    const relPath = path.relative(process.cwd(), file);
+                    output += `- **${relPath}**: [${exports.join(", ")}]\n`;
+                }
+            } catch (e) {}
+        }
+
+        if (output.trim() === `### Project Architecture Map (${args.targetDirectory})`) {
+            output += "\nNo exports found in the scanned files.";
+        }
+
+        return { content: [{ type: "text", text: output }] };
     }
 );
 

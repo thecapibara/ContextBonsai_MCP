@@ -1,7 +1,10 @@
 # Changelog
 
-## [1.5.0] - 2026-04-25
+## [2.0.0] - 2026-04-26
 ### Added
+- **The RAG Engine (`query_bonsai_knowledge`)**: Added `minisearch` to perform zero-dependency local text searches over active and archived semantic logs. Safely returns historically solved tickets via LLM invocation.
+- **Global AST Radar (`map_project_architecture`)**: Added a global directory scanner that uses AST to extract all `export` signatures across the codebase without loading file bodies.
+- **Auto-Purge Focus**: `prune_context_branch` now automatically destroys the active `bonsai_focus.md` file, freeing LLM context bounds immediately after resolving the bug.
 - **Dependency Mapping**: `preview_file_signatures` now dynamically extracts and compresses all file imports (`{ X, Y } from 'Z'`) into a 1-line native header, completely eliminating "Blind Spots" without costing heavy tokens.
 - **Zero-Downtime Health Checks**: Context Bonsai server now runs a silent integrity check on `state.json` on boot. If corrupted via crash or LLM-hallucination, the server will instantly and silently self-heal using the `.bak` atomic backup before mounting the Stdio transport to the LLM.
 
