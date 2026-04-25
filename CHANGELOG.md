@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.9] - 2026-04-25
+### Added
+- **Evergreen Logs**: Introduced `is_critical` flag for branches. Critical logs (🌟) bypass the pruning limit to prevent knowledge degradation.
+- **Schema Versioning**: Added `schema_version` to `state.json` to enable future automated migrations and data portability.
+
 ## [1.0.8] - 2026-04-25
 ### Added
 - **Concurrency Queue**: All file writes are now serialized via a singleton promise queue to prevent race conditions.

@@ -9,10 +9,11 @@ import * as process from "node:process";
 // Запускаємо сервер
 const server = new McpServer({
     name: "context-bonsai-mcp",
-    version: "1.0.8"
+    version: "1.0.9"
 });
 
 const DEFAULT_STATE = {
+    schema_version: 1,
     project_phase: "planning",
     active_objectives: [],
     completed_milestones: [],
@@ -138,11 +139,13 @@ server.tool(
         issue_root_cause: z.string().describe("What exactly was the problem/bug"),
         final_solution: z.string().describe("How it was successfully fixed"),
         mutated_files: z.array(z.string()).describe("Paths of the files that were touched"),
-        topic: z.enum(["Logic", "UI", "Database", "Auth", "Infra", "Other"]).describe("The semantic domain/module of this branch")
+        topic: z.enum(["Logic", "UI", "Database", "Auth", "Infra", "Other"]).describe("The semantic domain/module of this branch"),
+        is_critical: z.boolean().optional().describe("If true, this log is marked as EVERGREEN and will NEVER be pruned")
     },
     async (args) => {
         const logPath = path.join(process.cwd(), "bonsai_logs.md");
         const topic = args.topic || "General";
+        const marker = args.is_critical ? "### 🌟 CRITICAL BRANCH" : "### 🌳 PRUNED BRANCH";
         const entryBody = `**Date:** ${new Date().toISOString()}\n**Root Cause:** ${args.issue_root_cause}\n**Solution:** ${args.final_solution}\n**Mutated Files:**\n${args.mutated_files.map((f: string) => `- ${f}`).join("\n")}\n---\n`;
 
         let existingLogs = "";
@@ -156,28 +159,40 @@ server.tool(
         for (const block of blocks) {
             const lines = block.split('\n');
             const blockTopic = lines[0].trim();
-            const contentEntries = block.substring(lines[0].length).split(/^### 🌳 PRUNED BRANCH/m).filter(c => c.trim().length > 0);
+            // Split by both markers, preserving the marker in the content
+            const contentEntries = block.substring(lines[0].length)
+                .split(/^(?=### [🌳🌟] (?:PRUNED|CRITICAL) BRANCH)/m)
+                .filter(c => c.trim().length > 0);
             topicMap[blockTopic] = contentEntries;
         }
 
         if (!topicMap[topic]) topicMap[topic] = [];
-        topicMap[topic].push(entryBody);
+        topicMap[topic].push(`${marker}\n${entryBody}`);
 
-        const MAX_PER_TOPIC = 3;
+        const MAX_PRUNED_PER_TOPIC = 3;
         let finalMarkdown = "# 🌳 Semantic Context Logs\n\n";
         
         for (const [t, entries] of Object.entries(topicMap)) {
-            const prunedEntries = entries.length > MAX_PER_TOPIC ? entries.slice(-MAX_PER_TOPIC) : entries;
             finalMarkdown += `## Topic: ${t}\n`;
-            for (const entry of prunedEntries) {
-                finalMarkdown += `### 🌳 PRUNED BRANCH\n${entry.trim()}\n\n`;
+            
+            const criticals = entries.filter(e => e.includes("🌟 CRITICAL BRANCH"));
+            const pruned = entries.filter(e => e.includes("🌳 PRUNED BRANCH"));
+            
+            // Keep all criticals, but only the last N pruned
+            const keptPruned = pruned.slice(-MAX_PRUNED_PER_TOPIC);
+            
+            for (const entry of criticals) {
+                finalMarkdown += `${entry.trim()}\n\n`;
+            }
+            for (const entry of keptPruned) {
+                finalMarkdown += `${entry.trim()}\n\n`;
             }
         }
 
         await safeWrite(logPath, finalMarkdown);
         
         return {
-            content: [{ type: "text", text: `Success: Semantic pruning complete. Log added to topic [${topic}]. Retained top ${MAX_PER_TOPIC} logs per semantic topic.` }]
+            content: [{ type: "text", text: `Success: Semantic pruning complete. Log added to topic [${topic}]. ${args.is_critical ? "Log marked as EVERGREEN (Critical)." : `Retained top ${MAX_PRUNED_PER_TOPIC} standard logs.`}` }]
         };
     }
 );
