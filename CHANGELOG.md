@@ -1,5 +1,13 @@
 # Changelog
  
+## [2.2.1] - 2026-04-26
+### Fixed
+- **Version Bug**: Corrected hardcoded version string in `run_diagnostics`.
+- **Root Clutter**: Moved all internal metadata (`state.json`, logs) into a dedicated `.bonsai/` directory. Added automatic migration from project root.
+- **Git Hygiene**: Added automatic `.bonsai/` entry to `.gitignore` if git is detected.
+### Added
+- **Git Sync (`sync_git_state`)**: New tool to automatically import recent commit messages as project milestones, reducing manual data entry.
+ 
 ## [2.2.0] - 2026-04-26
 ### Added
 - **Python AST Bridge**: Replaced naive regex-based signature extraction with a robust Python AST parser.

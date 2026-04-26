@@ -53,28 +53,39 @@ export async function walkDir(dir: string, fileList: string[] = []): Promise<str
     return fileList;
 }
 
+const APP_VERSION = "2.2.1";
+
 // Запускаємо сервер
 const server = new McpServer({
     name: "context-bonsai-mcp",
-    version: "2.2.0"
+    version: APP_VERSION
 });
 
 // v2.1.0: Sandbox Configuration
 export const BONSAI_ROOT = process.env.BONSAI_ROOT ? path.resolve(process.env.BONSAI_ROOT) : process.cwd();
+export const BONSAI_STORE_DIR = path.join(BONSAI_ROOT, ".bonsai");
 export const MAX_FILES_MAPPED = 1000;
 
 /**
- * Ensures a path is within the BONSAI_ROOT to prevent Path Traversal
+ * Ensures a path is within the BONSAI_ROOT or BONSAI_STORE_DIR to prevent Path Traversal
  */
 export function getSafePath(inputPath: string): string {
     const resolved = path.resolve(BONSAI_ROOT, inputPath);
-    // Secure prefix check: must be either the root itself or followed by a path separator
-    const isSafe = resolved === BONSAI_ROOT || resolved.startsWith(BONSAI_ROOT + path.sep);
     
-    if (!isSafe) {
+    // Check if it's in the root or in the store dir
+    const isSafeInRoot = resolved === BONSAI_ROOT || resolved.startsWith(BONSAI_ROOT + path.sep);
+    
+    if (!isSafeInRoot) {
         throw new Error(`SECURITY ALERT: Path Traversal Attempted. Target '${resolved}' is outside of Sandbox '${BONSAI_ROOT}'.`);
     }
     return resolved;
+}
+
+/**
+ * Gets path for internal storage files, ensuring they are in .bonsai/
+ */
+function getStorePath(filename: string): string {
+    return path.join(BONSAI_STORE_DIR, filename);
 }
 
 const DEFAULT_STATE = {
@@ -119,7 +130,7 @@ server.tool(
     {},
     async () => {
         try {
-            const statePath = getSafePath("state.json");
+            const statePath = getStorePath("state.json");
             const data = await fs.readFile(statePath, "utf-8");
             return {
                 content: [{ type: "text", text: data }]
@@ -149,7 +160,7 @@ server.tool(
         resolve_issue_id: z.string().describe("UUID of the issue to mark as resolved").optional()
     },
     async (args) => {
-        const statePath = getSafePath("state.json");
+        const statePath = getStorePath("state.json");
         let state: any = { ...DEFAULT_STATE };
         try {
             const current = await fs.readFile(statePath, "utf-8");
@@ -207,8 +218,8 @@ server.tool(
         is_critical: z.boolean().optional().describe("If true, this log is marked as EVERGREEN and will NEVER be pruned")
     },
     async (args) => {
-        const logPath = getSafePath("bonsai_logs.md");
-        const archivePath = getSafePath("bonsai_archive.md");
+        const logPath = getStorePath("bonsai_logs.md");
+        const archivePath = getStorePath("bonsai_archive.md");
         const topic = args.topic || "General";
         const marker = args.is_critical ? "### 🌟 CRITICAL BRANCH" : "### 🌳 PRUNED BRANCH";
         
@@ -302,7 +313,7 @@ server.tool(
         rule: z.string().describe("The exact rule text")
     },
     async (args) => {
-        const statePath = getSafePath("state.json");
+        const statePath = getStorePath("state.json");
         let state: any = { ...DEFAULT_STATE };
         try {
             const current = await fs.readFile(statePath, "utf-8");
@@ -332,8 +343,8 @@ server.tool(
         topic: z.string().describe("The topic to focus on (e.g. 'Auth', 'UI') or null/empty to clear focus")
     },
     async (args) => {
-        const logPath = getSafePath("bonsai_logs.md");
-        const focusPath = getSafePath("bonsai_focus.md");
+        const logPath = getStorePath("bonsai_logs.md");
+        const focusPath = getStorePath("bonsai_focus.md");
         
         if (!args.topic || args.topic.toLowerCase() === "clear") {
             try { await fs.unlink(focusPath); } catch {}
@@ -545,8 +556,8 @@ server.tool(
         query: z.string().describe("What you are looking for (e.g. 'auth token error'). Try to use specific keywords.")
     },
     async (args) => {
-        const logPath = getSafePath("bonsai_logs.md");
-        const archivePath = getSafePath("bonsai_archive.md");
+        const logPath = getStorePath("bonsai_logs.md");
+        const archivePath = getStorePath("bonsai_archive.md");
         
         const docs: any[] = [];
         let docId = 1;
@@ -675,8 +686,9 @@ server.tool(
     {},
     async () => {
         const stats = {
-            version: "2.1.0",
+            version: APP_VERSION,
             sandbox_root: BONSAI_ROOT,
+            store_dir: BONSAI_STORE_DIR,
             sandbox_valid: false,
             state_found: false,
             logs_found: false,
@@ -688,22 +700,96 @@ server.tool(
             await fs.access(BONSAI_ROOT);
             stats.sandbox_valid = true;
             
-            const files = await fs.readdir(BONSAI_ROOT);
+            const files = await fs.readdir(BONSAI_STORE_DIR).catch(() => []);
             stats.state_found = files.includes("state.json");
             stats.logs_found = files.includes("bonsai_logs.md");
             stats.archive_found = files.includes("bonsai_archive.md");
         } catch (e) {}
 
         return {
-            content: [{ type: "text", text: `# Context Bonsai v2.1.0 Diagnostics\n\n\`\`\`json\n${JSON.stringify(stats, null, 2)}\n\`\`\`\n\nEverything looks healthy.` }]
+            content: [{ type: "text", text: `# Context Bonsai v${APP_VERSION} Diagnostics\n\n\`\`\`json\n${JSON.stringify(stats, null, 2)}\n\`\`\`\n\nEverything looks healthy.` }]
+        };
+    }
+);
+
+// 10. Git Synchronization
+server.tool(
+    "sync_git_state",
+    "Synchronizes project milestones by importing the latest git commit messages. Reduces manual data entry.",
+    {
+        count: z.number().optional().default(5).describe("Number of recent commits to analyze")
+    },
+    async (args) => {
+        const statePath = getStorePath("state.json");
+        let state: any = { ...DEFAULT_STATE };
+        try {
+            const current = await fs.readFile(statePath, "utf-8");
+            state = { ...state, ...JSON.parse(current) };
+        } catch (e: any) {}
+
+        let addedCount = 0;
+        try {
+            const { stdout } = await execAsync(`git log -n ${args.count} --pretty=format:"%s"`, { cwd: BONSAI_ROOT });
+            const commits = stdout.split('\n').filter(c => c.trim().length > 0);
+            
+            state.completed_milestones = state.completed_milestones || [];
+            for (const commit of commits) {
+                if (!state.completed_milestones.includes(commit)) {
+                    state.completed_milestones.push(commit);
+                    addedCount++;
+                }
+            }
+        } catch (e) {
+            return { isError: true, content: [{ type: "text", text: "Error: This project is not a git repository or git is not available." }] };
+        }
+
+        if (addedCount > 0) {
+            await safeWrite(statePath, JSON.stringify(state, null, 2));
+        }
+
+        return {
+            content: [{ type: "text", text: `Success: Synced with git. Added ${addedCount} new milestones from recent commits.` }]
         };
     }
 );
 
 // Транспорт
 async function run() {
+    // 0. Auto-Migration & Directory Setup
+    try {
+        await fs.mkdir(BONSAI_STORE_DIR, { recursive: true });
+        
+        // Migration from root to .bonsai/
+        const legacyFiles = ["state.json", "state.json.bak", "bonsai_logs.md", "bonsai_logs.md.bak", "bonsai_archive.md", "bonsai_archive.md.bak"];
+        for (const file of legacyFiles) {
+            const oldPath = path.join(BONSAI_ROOT, file);
+            const newPath = path.join(BONSAI_STORE_DIR, file);
+            try {
+                await fs.access(oldPath);
+                await fs.rename(oldPath, newPath);
+                console.error(`[Context Bonsai] Migrated ${file} to .bonsai/`);
+            } catch {}
+        }
+
+        // Auto-gitignore
+        const gitDir = path.join(BONSAI_ROOT, ".git");
+        const gitIgnorePath = path.join(BONSAI_ROOT, ".gitignore");
+        try {
+            await fs.access(gitDir);
+            let ignoreContent = "";
+            try { ignoreContent = await fs.readFile(gitIgnorePath, "utf-8"); } catch {}
+            if (!ignoreContent.includes(".bonsai/")) {
+                await fs.writeFile(gitIgnorePath, ignoreContent + (ignoreContent.endsWith("\n") ? "" : "\n") + ".bonsai/\n", "utf-8");
+                console.error("[Context Bonsai] Added .bonsai/ to .gitignore");
+            }
+        } catch {}
+
+    } catch (e) {
+        console.error("[Context Bonsai] Error during directory setup:", e);
+    }
+
     // Zero-Downtime Health Check & Self-Healing
-    const statePath = path.join(BONSAI_ROOT, "state.json");
+    const statePath = getStorePath("state.json");
     const bakPath = statePath + ".bak";
     try {
         const data = await fs.readFile(statePath, "utf-8");
@@ -722,7 +808,7 @@ async function run() {
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.error("Context Bonsai MCP Server running on stdio");
+    console.error(`Context Bonsai MCP Server v${APP_VERSION} running on stdio`);
 }
 
 if (process.env.NODE_ENV !== 'test') {
