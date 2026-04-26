@@ -700,7 +700,7 @@ server.tool(
             await fs.access(BONSAI_ROOT);
             stats.sandbox_valid = true;
             
-            const files = await fs.readdir(BONSAI_STORE_DIR).catch(() => []);
+            const files: string[] = await fs.readdir(BONSAI_STORE_DIR).catch(() => []);
             stats.state_found = files.includes("state.json");
             stats.logs_found = files.includes("bonsai_logs.md");
             stats.archive_found = files.includes("bonsai_archive.md");
