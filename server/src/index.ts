@@ -12,21 +12,56 @@ import MiniSearch from "minisearch";
 
 const execAsync = promisify(exec);
 
+export function getPythonMatches(line: string) {
+    return {
+        classMatch: line.match(/^class\s+([a-zA-Z_][a-zA-Z0-9_]*)/),
+        defMatch: line.match(/^\s*(?:async\s+)?def\s+([a-zA-Z_][a-zA-Z0-9_]*)/),
+        decoratorMatch: line.match(/^\s*@([a-zA-Z_][a-zA-Z0-9_.]*)/)
+    };
+}
+
+export async function walkDir(dir: string, fileList: string[] = []): Promise<string[]> {
+    if (fileList.length >= MAX_FILES_MAPPED) return fileList;
+    
+    try {
+        const list = await fs.readdir(dir);
+        for (const file of list) {
+            if (fileList.length >= MAX_FILES_MAPPED) break;
+
+            const filePath = path.join(dir, file);
+            const stat = await fs.stat(filePath);
+            if (stat && stat.isDirectory()) {
+                if (file === 'node_modules' || file === '.git' || file === 'build' || file === 'dist' || file === 'coverage') continue;
+                await walkDir(filePath, fileList);
+            } else {
+                if (filePath.match(/\.(ts|js|tsx|jsx|py)$/)) {
+                    fileList.push(filePath);
+                }
+            }
+        }
+    } catch (e) {}
+    return fileList;
+}
+
 // Запускаємо сервер
 const server = new McpServer({
     name: "context-bonsai-mcp",
-    version: "2.1.0"
+    version: "2.1.1"
 });
 
 // v2.1.0: Sandbox Configuration
-const BONSAI_ROOT = process.env.BONSAI_ROOT ? path.resolve(process.env.BONSAI_ROOT) : process.cwd();
+export const BONSAI_ROOT = process.env.BONSAI_ROOT ? path.resolve(process.env.BONSAI_ROOT) : process.cwd();
+export const MAX_FILES_MAPPED = 1000;
 
 /**
  * Ensures a path is within the BONSAI_ROOT to prevent Path Traversal
  */
-function getSafePath(inputPath: string): string {
+export function getSafePath(inputPath: string): string {
     const resolved = path.resolve(BONSAI_ROOT, inputPath);
-    if (!resolved.startsWith(BONSAI_ROOT)) {
+    // Secure prefix check: must be either the root itself or followed by a path separator
+    const isSafe = resolved === BONSAI_ROOT || resolved.startsWith(BONSAI_ROOT + path.sep);
+    
+    if (!isSafe) {
         throw new Error(`SECURITY ALERT: Path Traversal Attempted. Target '${resolved}' is outside of Sandbox '${BONSAI_ROOT}'.`);
     }
     return resolved;
@@ -48,7 +83,7 @@ let writeQueue = Promise.resolve();
  * Atomic write with backup and CONCURRENCY QUEUE:
  * Serializes all writes via a singleton promise queue to prevent race conditions.
  */
-async function safeWrite(filePath: string, content: string): Promise<void> {
+export async function safeWrite(filePath: string, content: string): Promise<void> {
     const result = writeQueue.then(async () => {
         const tempPath = filePath + "." + Math.random().toString(36).substring(7) + ".tmp";
         const bakPath = filePath + ".bak";
@@ -171,7 +206,12 @@ server.tool(
         try {
             const { stdout: hash } = await execAsync("git rev-parse --short HEAD", { cwd: BONSAI_ROOT });
             const { stdout: branch } = await execAsync("git rev-parse --abbrev-ref HEAD", { cwd: BONSAI_ROOT });
+            const { stdout: diffStat } = await execAsync("git diff --stat HEAD", { cwd: BONSAI_ROOT }).catch(() => ({ stdout: "" }));
+            
             gitContext = `**Git:** \`${branch.trim()}@${hash.trim()}\`\n`;
+            if (diffStat.trim()) {
+                gitContext += `**Diff Stat:**\n\`\`\`\n${diffStat.trim()}\n\`\`\`\n`;
+            }
         } catch (e) {
             // Ignore non-git repos
         }
@@ -348,8 +388,7 @@ server.tool(
             const lines = code.split('\n');
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
-                const classMatch = line.match(/^class\s+([a-zA-Z_][a-zA-Z0-9_]*)/);
-                const defMatch = line.match(/^\s*def\s+([a-zA-Z_][a-zA-Z0-9_]*)/);
+                const { classMatch, defMatch, decoratorMatch } = getPythonMatches(line);
                 
                 if (classMatch) {
                     signatures.push(`class ${classMatch[1]}:`);
@@ -358,6 +397,9 @@ server.tool(
                     const indent = line.match(/^\s*/)?.[0].length || 0;
                     const cleanDef = line.trim().replace(/:$/, '');
                     signatures.push(" ".repeat(indent) + cleanDef);
+                } else if (decoratorMatch) {
+                    const indent = line.match(/^\s*/)?.[0].length || 0;
+                    signatures.push(" ".repeat(indent) + "@" + decoratorMatch[1]);
                 }
             }
             
@@ -554,30 +596,9 @@ server.tool(
     },
     async (args) => {
         const targetPath = getSafePath(args.targetDirectory);
-        
-        async function walkDir(dir: string): Promise<string[]> {
-            let results: string[] = [];
-            try {
-                const list = await fs.readdir(dir);
-                for (const file of list) {
-                    const filePath = path.join(dir, file);
-                    const stat = await fs.stat(filePath);
-                    if (stat && stat.isDirectory()) {
-                        if (file === 'node_modules' || file === '.git' || file === 'build' || file === 'dist' || file === 'coverage') continue;
-                        results = results.concat(await walkDir(filePath));
-                    } else {
-                        if (filePath.match(/\.(ts|js|tsx|jsx|py)$/)) {
-                            results.push(filePath);
-                        }
-                    }
-                }
-            } catch (e) {}
-            return results;
-        }
-        
         const files = await walkDir(targetPath);
         if (files.length === 0) {
-            return { content: [{ type: "text", text: `No TS/JS files found in ${args.targetDirectory}` }] };
+            return { content: [{ type: "text", text: `No TS/JS/Python files found in ${args.targetDirectory}` }] };
         }
 
         let output = `### Project Architecture Map (${args.targetDirectory})\n\n`;
@@ -613,8 +634,7 @@ server.tool(
                 if (file.endsWith('.py')) {
                     const lines = code.split('\n');
                     for (const line of lines) {
-                        const classMatch = line.match(/^class\s+([a-zA-Z_][a-zA-Z0-9_]*)/);
-                        const defMatch = line.match(/^def\s+([a-zA-Z_][a-zA-Z0-9_]*)/);
+                        const { classMatch, defMatch } = getPythonMatches(line);
                         if (classMatch) exports.push(`class ${classMatch[1]}`);
                         if (defMatch) exports.push(`def ${defMatch[1]}`);
                     }
@@ -692,4 +712,6 @@ async function run() {
     console.error("Context Bonsai MCP Server running on stdio");
 }
 
-run().catch(console.error);
+if (process.env.NODE_ENV !== 'test') {
+    run().catch(console.error);
+}

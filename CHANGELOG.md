@@ -1,4 +1,13 @@
 # Changelog
+ 
+## [2.1.1] - 2026-04-26
+### Fixed
+- **Security hardening**: Fixed prefix-match vulnerability in `getSafePath` to prevent path traversal in enterprise environments.
+- **Stability**: Added `MAX_FILES_MAPPED` limit (1000 files) to `map_project_architecture` to prevent memory exhaustion on large codebases.
+- **Python AST**: Improved signature extraction for Python, adding support for `async def` and decorators.
+### Added
+- **Git Metadata**: `prune_context_branch` now automatically includes `git diff --stat` for better visibility into branch changes.
+- **Test Suite**: Introduced `vitest` with comprehensive security and logic testing.
 
 ## [2.1.0] - 2026-04-26
 ### Fixed
