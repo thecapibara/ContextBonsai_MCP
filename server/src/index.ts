@@ -12,6 +12,16 @@ import MiniSearch from "minisearch";
 
 const execAsync = promisify(exec);
 
+async function callPythonParser(filePath: string): Promise<any[]> {
+    try {
+        const scriptPath = path.join(path.dirname(import.meta.url.replace('file://', '')), 'python_ast_parser.py');
+        const { stdout } = await execAsync(`python3 "${scriptPath}" "${filePath}"`);
+        return JSON.parse(stdout);
+    } catch (e) {
+        return [];
+    }
+}
+
 export function getPythonMatches(line: string) {
     return {
         classMatch: line.match(/^class\s+([a-zA-Z_][a-zA-Z0-9_]*)/),
@@ -46,7 +56,7 @@ export async function walkDir(dir: string, fileList: string[] = []): Promise<str
 // Запускаємо сервер
 const server = new McpServer({
     name: "context-bonsai-mcp",
-    version: "2.1.1"
+    version: "2.2.0"
 });
 
 // v2.1.0: Sandbox Configuration
@@ -382,29 +392,33 @@ server.tool(
 
         const ext = path.extname(targetPath).toLowerCase();
         
-        // 1. Python Support (Regex-based)
+        // 1. Python Support (AST-based bridge)
         if (ext === '.py') {
-            const signatures: string[] = [];
-            const lines = code.split('\n');
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i];
-                const { classMatch, defMatch, decoratorMatch } = getPythonMatches(line);
-                
-                if (classMatch) {
-                    signatures.push(`class ${classMatch[1]}:`);
-                } else if (defMatch) {
-                    // Match indentation to distinguish top-level vs methods
-                    const indent = line.match(/^\s*/)?.[0].length || 0;
-                    const cleanDef = line.trim().replace(/:$/, '');
-                    signatures.push(" ".repeat(indent) + cleanDef);
-                } else if (decoratorMatch) {
-                    const indent = line.match(/^\s*/)?.[0].length || 0;
-                    signatures.push(" ".repeat(indent) + "@" + decoratorMatch[1]);
+            const pySignatures = await callPythonParser(targetPath);
+            const output: string[] = [];
+            
+            for (const item of pySignatures) {
+                if (item.type === 'class') {
+                    if (item.doc) output.push(`/** ${item.doc} */`);
+                    output.push(`class ${item.name}:`);
+                    for (const m of item.methods) {
+                        if (m.doc) output.push(`    /** ${m.doc} */`);
+                        if (m.decorators && m.decorators.length > 0) {
+                            m.decorators.forEach((d: string) => output.push(`    @${d}`));
+                        }
+                        output.push(`    ${m.async ? 'async ' : ''}def ${m.name}(...):`);
+                    }
+                } else if (item.type === 'function') {
+                    if (item.doc) output.push(`/** ${item.doc} */`);
+                    if (item.decorators && item.decorators.length > 0) {
+                        item.decorators.forEach((d: string) => output.push(`@${d}`));
+                    }
+                    output.push(`${item.async ? 'async ' : ''}def ${item.name}(...):`);
                 }
             }
             
             return {
-                content: [{ type: "text", text: `### Python Signature Preview: ${path.basename(targetPath)}\n\n${signatures.join('\n')}\n\n// Note: Extracted via regex signatures.` }]
+                content: [{ type: "text", text: `### Python AST Signature Preview: ${path.basename(targetPath)}\n\n${output.join('\n')}\n\n// Note: Deeply extracted via Python AST bridge.` }]
             };
         }
 
@@ -630,13 +644,12 @@ server.tool(
                     }
                 }
                 
-                // v2.1.0: Add Python Export detection (Naive: all classes/defs)
+                // v2.2.0: Deep Python Export detection (AST-based)
                 if (file.endsWith('.py')) {
-                    const lines = code.split('\n');
-                    for (const line of lines) {
-                        const { classMatch, defMatch } = getPythonMatches(line);
-                        if (classMatch) exports.push(`class ${classMatch[1]}`);
-                        if (defMatch) exports.push(`def ${defMatch[1]}`);
+                    const pySignatures = await callPythonParser(file);
+                    for (const item of pySignatures) {
+                        if (item.type === 'class') exports.push(`class ${item.name}`);
+                        if (item.type === 'function') exports.push(`def ${item.name}`);
                     }
                 }
                 

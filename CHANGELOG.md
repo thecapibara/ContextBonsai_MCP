@@ -1,5 +1,13 @@
 # Changelog
  
+## [2.2.0] - 2026-04-26
+### Added
+- **Python AST Bridge**: Replaced naive regex-based signature extraction with a robust Python AST parser.
+    - Deep extraction of classes, methods, and functions.
+    - Full support for `async def` and decorators.
+    - Automatic inclusion of docstrings (first summary line) for better context with fewer tokens.
+- **Improved Mapping**: `map_project_architecture` now uses the same deep AST parsing for Python files.
+ 
 ## [2.1.1] - 2026-04-26
 ### Fixed
 - **Security hardening**: Fixed prefix-match vulnerability in `getSafePath` to prevent path traversal in enterprise environments.
