@@ -813,6 +813,57 @@ async function run() {
             }
         } catch {}
 
+        // Git Auto-Hook Watcher
+        try {
+            const gitHeadPath = path.join(BONSAI_ROOT, ".git", "HEAD");
+            await fs.access(gitHeadPath);
+            let debounceTimer: NodeJS.Timeout | null = null;
+            // Native fs import is 'node:fs', watch is available there.
+            // But we imported fs as 'node:fs/promises'. 'watch' is on standard fs or we can use async iterators.
+            // Since we imported `import * as fs from "node:fs/promises";`, `fs.watch` returns an AsyncIterable.
+            // It's better to use an async loop for this.
+            (async () => {
+                try {
+                    const watcher = fs.watch(gitHeadPath);
+                    for await (const event of watcher) {
+                        if (debounceTimer) clearTimeout(debounceTimer);
+                        debounceTimer = setTimeout(async () => {
+                            try {
+                                const { stdout: hash } = await execAsync("git rev-parse --short HEAD", { cwd: BONSAI_ROOT });
+                                const { stdout: msg } = await execAsync(`git log -1 --pretty=format:"%s"`, { cwd: BONSAI_ROOT });
+                                
+                                const memPath = getStorePath("bonsai_memory.json");
+                                let memory: MemoryEntry[] = [];
+                                try {
+                                    const currentMem = await fs.readFile(memPath, "utf-8");
+                                    memory = JSON.parse(currentMem);
+                                } catch {}
+                                
+                                const hashStr = hash.trim();
+                                const isDup = memory.some((m: MemoryEntry) => m.topic === "Git Auto-Hook" && m.issue_root_cause.includes(hashStr));
+                                
+                                if (!isDup) {
+                                    memory.push({
+                                        id: "mem_git_" + Math.random().toString(36).substring(2, 10),
+                                        timestamp: new Date().toISOString(),
+                                        topic: "Git Auto-Hook",
+                                        issue_root_cause: `Commit/Branch Change: ${hashStr}`,
+                                        final_solution: msg.trim(),
+                                        mutated_files: [],
+                                        confidence_score: 1.0,
+                                        status: "active",
+                                        is_critical: false
+                                    });
+                                    await safeWrite(memPath, JSON.stringify(memory, null, 2));
+                                }
+                            } catch(e) {}
+                        }, 2000);
+                    }
+                } catch(e) {}
+            })();
+            console.error("[Context Bonsai] Git Auto-Hook initialized.");
+        } catch {}
+
     } catch (e) {
         console.error("[Context Bonsai] Error during directory setup:", e);
     }
