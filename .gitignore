@@ -10,3 +10,4 @@ server/package-lock.json
 # Локальні логі проєкту та стейт
 bonsai_logs.md
 state.json
+GIST.md
