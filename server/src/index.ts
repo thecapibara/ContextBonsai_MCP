@@ -98,6 +98,19 @@ const DEFAULT_STATE = {
     strict_rules: []
 };
 
+export interface MemoryEntry {
+    id: string;
+    timestamp: string;
+    topic: string;
+    issue_root_cause: string;
+    final_solution: string;
+    mutated_files: string[];
+    confidence_score: number;
+    status: "active" | "superseded";
+    superseded_by?: string;
+    is_critical: boolean;
+}
+
 let writeQueue = Promise.resolve();
 
 /**
@@ -209,97 +222,53 @@ server.tool(
 // 3. Контекстний бонсай (Обрізання дерева)
 server.tool(
     "prune_context_branch",
-    "Append a dense, declarative summary of a fixed issue to bonsai_logs.md to relieve the active context window.",
+    "Append a structured memory entry about a fixed issue to the project's semantic knowledge base.",
     {
         issue_root_cause: z.string().describe("What exactly was the problem/bug"),
         final_solution: z.string().describe("How it was successfully fixed"),
         mutated_files: z.array(z.string()).describe("Paths of the files that were touched"),
         topic: z.enum(["Logic", "UI", "Database", "Auth", "Infra", "Other"]).describe("The semantic domain/module of this branch"),
-        is_critical: z.boolean().optional().describe("If true, this log is marked as EVERGREEN and will NEVER be pruned")
+        is_critical: z.boolean().optional().describe("If true, this log is marked as EVERGREEN and will NEVER be pruned"),
+        confidence_score: z.number().min(0.0).max(1.0).optional().default(1.0).describe("Confidence in this solution (0.0 to 1.0)"),
+        supersedes_id: z.string().optional().describe("If this fix overrides an older memory, pass the old entry's ID here to supersede it")
     },
     async (args) => {
-        const logPath = getStorePath("bonsai_logs.md");
-        const archivePath = getStorePath("bonsai_archive.md");
-        const topic = args.topic || "General";
-        const marker = args.is_critical ? "### 🌟 CRITICAL BRANCH" : "### 🌳 PRUNED BRANCH";
+        const memoryPath = getStorePath("bonsai_memory.json");
         
-        let gitContext = "";
+        let memory: MemoryEntry[] = [];
         try {
-            const { stdout: hash } = await execAsync("git rev-parse --short HEAD", { cwd: BONSAI_ROOT });
-            const { stdout: branch } = await execAsync("git rev-parse --abbrev-ref HEAD", { cwd: BONSAI_ROOT });
-            const { stdout: diffStat } = await execAsync("git diff --stat HEAD", { cwd: BONSAI_ROOT }).catch(() => ({ stdout: "" }));
-            
-            gitContext = `**Git:** \`${branch.trim()}@${hash.trim()}\`\n`;
-            if (diffStat.trim()) {
-                gitContext += `**Diff Stat:**\n\`\`\`\n${diffStat.trim()}\n\`\`\`\n`;
-            }
-        } catch (e) {
-            // Ignore non-git repos
-        }
-
-        const entryBody = `**Date:** ${new Date().toISOString()}\n${gitContext}**Root Cause:** ${args.issue_root_cause}\n**Solution:** ${args.final_solution}\n**Mutated Files:**\n${args.mutated_files.map((f: string) => `- ${f}`).join("\n")}\n---\n`;
-
-        let existingLogs = "";
-        try {
-            existingLogs = await fs.readFile(logPath, "utf-8");
+            const current = await fs.readFile(memoryPath, "utf-8");
+            memory = JSON.parse(current);
         } catch (e) {}
 
-        const blocks = existingLogs.split(/^## Topic: /m).filter(b => b.trim().length > 0);
+        const newId = "mem_" + Math.random().toString(36).substring(2, 10);
         
-        const topicMap: Record<string, string[]> = {};
-        for (const block of blocks) {
-            const lines = block.split('\n');
-            const blockTopic = lines[0].trim();
-            const contentEntries = block.substring(lines[0].length)
-                .split(/^(?=### [🌳🌟] (?:PRUNED|CRITICAL) BRANCH)/m)
-                .filter(c => c.trim().length > 0);
-            topicMap[blockTopic] = contentEntries;
-        }
-
-        if (!topicMap[topic]) topicMap[topic] = [];
-        topicMap[topic].push(`${marker}\n${entryBody}`);
-
-        const MAX_PRUNED_PER_TOPIC = 3;
-        const MAX_EVERGREEN_PER_TOPIC = 5;
-        let finalMarkdown = "# 🌳 Semantic Context Logs\n\n";
-        let archivedContent = "";
-        
-        for (const [t, entries] of Object.entries(topicMap)) {
-            finalMarkdown += `## Topic: ${t}\n`;
-            
-            const criticals = entries.filter(e => e.includes("🌟 CRITICAL BRANCH"));
-            const pruned = entries.filter(e => e.includes("🌳 PRUNED BRANCH"));
-            
-            // Handle Evergreen Overflow (Deep Archive)
-            let keptEvergreens = criticals;
-            if (criticals.length > MAX_EVERGREEN_PER_TOPIC) {
-                const toArchive = criticals.slice(0, criticals.length - MAX_EVERGREEN_PER_TOPIC);
-                keptEvergreens = criticals.slice(-MAX_EVERGREEN_PER_TOPIC);
-                archivedContent += `## 🏺 ARCHIVED TOPIC: ${t} (${new Date().toISOString()})\n${toArchive.join("\n\n")}\n---\n`;
-            }
-
-            const keptPruned = pruned.slice(-MAX_PRUNED_PER_TOPIC);
-            
-            for (const entry of keptEvergreens) {
-                finalMarkdown += `${entry.trim()}\n\n`;
-            }
-            for (const entry of keptPruned) {
-                finalMarkdown += `${entry.trim()}\n\n`;
+        // Handle supersession
+        if (args.supersedes_id) {
+            const oldEntry = memory.find(m => m.id === args.supersedes_id);
+            if (oldEntry) {
+                oldEntry.status = "superseded";
+                oldEntry.superseded_by = newId;
             }
         }
 
-        await safeWrite(logPath, finalMarkdown);
-        
-        if (archivedContent) {
-            let existingArchive = "";
-            try {
-                existingArchive = await fs.readFile(archivePath, "utf-8");
-            } catch {}
-            await safeWrite(archivePath, (existingArchive || "# 🏺 Context Bonsai Deep Archive\n\n") + archivedContent);
-        }
+        const newEntry: MemoryEntry = {
+            id: newId,
+            timestamp: new Date().toISOString(),
+            topic: args.topic || "Other",
+            issue_root_cause: args.issue_root_cause,
+            final_solution: args.final_solution,
+            mutated_files: args.mutated_files,
+            confidence_score: args.confidence_score,
+            status: "active",
+            is_critical: args.is_critical || false
+        };
+
+        memory.push(newEntry);
+        await safeWrite(memoryPath, JSON.stringify(memory, null, 2));
         
         return {
-            content: [{ type: "text", text: `Success: Semantic pruning complete. ${args.is_critical ? "Critical Log added." : "Standard Log added."} ${archivedContent ? "Old critical logs moved to Deep Archive." : ""}` }]
+            content: [{ type: "text", text: `Success: Memory entry [${newId}] saved. ${args.supersedes_id ? `Superseded [${args.supersedes_id}].` : ""}` }]
         };
     }
 );
@@ -548,44 +517,42 @@ server.tool(
     }
 );
 
-// 7. RAG Knowledge Query (Local Text Emulation)
+// 7. RAG Knowledge Query (Local JSON Search)
 server.tool(
     "query_bonsai_knowledge",
-    "Performs a local, zero-dependency RAG (Retrieval-Augmented Generation) search over the active and deep-archived semantic logs. Extremely useful to find exactly how you solved an old bug without hallucinating.",
+    "Performs a local RAG search over the structured semantic memory. Useful for finding how you solved past bugs.",
     {
-        query: z.string().describe("What you are looking for (e.g. 'auth token error'). Try to use specific keywords.")
+        query: z.string().describe("What you are looking for (e.g. 'auth token error')."),
+        include_superseded: z.boolean().optional().default(false).describe("Whether to include outdated/superseded memories.")
     },
     async (args) => {
-        const logPath = getStorePath("bonsai_logs.md");
-        const archivePath = getStorePath("bonsai_archive.md");
+        const memoryPath = getStorePath("bonsai_memory.json");
+        let memory: MemoryEntry[] = [];
         
-        const docs: any[] = [];
-        let docId = 1;
-
-        async function extractEntries(filePath: string) {
-            try {
-                const content = await fs.readFile(filePath, "utf-8");
-                const split = content.split(/(?=### [🌳🌟] (?:PRUNED|CRITICAL) BRANCH)/);
-                for (const s of split) {
-                    if (s.includes("Root Cause:")) {
-                        docs.push({ id: docId++, text: s.trim() });
-                    }
-                }
-            } catch (e) {}
-        }
-
-        await extractEntries(logPath);
-        await extractEntries(archivePath);
-
-        if (docs.length === 0) {
+        try {
+            const content = await fs.readFile(memoryPath, "utf-8");
+            memory = JSON.parse(content);
+        } catch (e) {
             return {
-                content: [{ type: "text", text: "Error: No semantic logs or archives found in the current project." }]
+                content: [{ type: "text", text: "Error: No semantic memory found. The knowledge base is empty." }]
             };
         }
 
+        let docs = memory;
+        if (!args.include_superseded) {
+            docs = docs.filter(d => d.status === "active");
+        }
+
+        if (docs.length === 0) {
+            return {
+                content: [{ type: "text", text: "No active entries in the knowledge base." }]
+            };
+        }
+
+        // MiniSearch needs a string 'id' and searchable fields
         const miniSearch = new MiniSearch({
-            fields: ['text'], 
-            storeFields: ['text'] 
+            fields: ['issue_root_cause', 'final_solution', 'topic'], 
+            storeFields: ['id', 'topic', 'timestamp', 'issue_root_cause', 'final_solution', 'confidence_score', 'status'] 
         });
 
         miniSearch.addAll(docs);
@@ -599,11 +566,14 @@ server.tool(
             };
         }
 
-        let output = `# RAG Search Results for: "${args.query}"\n\n`;
+        let output = `# Memory Search Results for: "${args.query}"\n\n`;
         output += `Found ${results.length} matches. Showing Top ${topResults.length}:\n\n---\n\n`;
         
         for (const res of topResults) {
-            output += `${res.text}\n\n---\n\n`;
+            output += `**ID:** ${res.id} | **Topic:** ${res.topic} | **Confidence:** ${res.confidence_score} | **Status:** ${res.status}\n`;
+            output += `**Date:** ${res.timestamp}\n`;
+            output += `**Root Cause:** ${res.issue_root_cause}\n`;
+            output += `**Solution:** ${res.final_solution}\n\n---\n\n`;
         }
 
         return {
@@ -691,8 +661,7 @@ server.tool(
             store_dir: BONSAI_STORE_DIR,
             sandbox_valid: false,
             state_found: false,
-            logs_found: false,
-            archive_found: false,
+            memory_found: false,
             write_queue_status: "idle"
         };
 
@@ -702,8 +671,7 @@ server.tool(
             
             const files: string[] = await fs.readdir(BONSAI_STORE_DIR).catch(() => []);
             stats.state_found = files.includes("state.json");
-            stats.logs_found = files.includes("bonsai_logs.md");
-            stats.archive_found = files.includes("bonsai_archive.md");
+            stats.memory_found = files.includes("bonsai_memory.json");
         } catch (e) {}
 
         return {
@@ -769,6 +737,67 @@ async function run() {
                 await fs.rename(oldPath, newPath);
                 console.error(`[Context Bonsai] Migrated ${file} to .bonsai/`);
             } catch {}
+        }
+
+        // Migrate Markdown to Structured Memory
+        const logsMdPath = getStorePath("bonsai_logs.md");
+        const archiveMdPath = getStorePath("bonsai_archive.md");
+        const memoryJsonPath = getStorePath("bonsai_memory.json");
+        
+        let needsMemoryMigration = false;
+        try {
+            await fs.access(logsMdPath);
+            needsMemoryMigration = true;
+        } catch {}
+        try {
+            await fs.access(archiveMdPath);
+            needsMemoryMigration = true;
+        } catch {}
+
+        if (needsMemoryMigration) {
+            let memory: MemoryEntry[] = [];
+            try {
+                const currentMem = await fs.readFile(memoryJsonPath, "utf-8");
+                memory = JSON.parse(currentMem);
+            } catch {}
+
+            async function migrateFile(filePath: string) {
+                try {
+                    const content = await fs.readFile(filePath, "utf-8");
+                    const blocks = content.split(/(?=### [🌳🌟] (?:PRUNED|CRITICAL) BRANCH)/);
+                    for (const block of blocks) {
+                        if (!block.includes("Root Cause:")) continue;
+                        
+                        const rootCauseMatch = block.match(/\*\*Root Cause:\*\*\s*(.+)/);
+                        const solutionMatch = block.match(/\*\*Solution:\*\*\s*(.+)/);
+                        const dateMatch = block.match(/\*\*Date:\*\*\s*(.+)/);
+                        const isCritical = block.includes("🌟 CRITICAL");
+
+                        if (rootCauseMatch && solutionMatch) {
+                            memory.push({
+                                id: "mem_mig_" + Math.random().toString(36).substring(2, 10),
+                                timestamp: dateMatch ? dateMatch[1] : new Date().toISOString(),
+                                topic: "Legacy",
+                                issue_root_cause: rootCauseMatch[1].trim(),
+                                final_solution: solutionMatch[1].trim(),
+                                mutated_files: [],
+                                confidence_score: 1.0,
+                                status: "active",
+                                is_critical: isCritical
+                            });
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            await migrateFile(logsMdPath);
+            await migrateFile(archiveMdPath);
+
+            await safeWrite(memoryJsonPath, JSON.stringify(memory, null, 2));
+            console.error("[Context Bonsai] Successfully migrated markdown logs to structured memory (bonsai_memory.json)");
+
+            try { await fs.rename(logsMdPath, logsMdPath + ".legacy"); } catch {}
+            try { await fs.rename(archiveMdPath, archiveMdPath + ".legacy"); } catch {}
         }
 
         // Auto-gitignore
